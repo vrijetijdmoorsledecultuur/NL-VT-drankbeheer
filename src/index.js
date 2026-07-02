@@ -1,5 +1,4 @@
 // NL-VT-drankbeheer — Cloudflare Worker (geen externe dependencies)
-// Gebruikt enkel de ingebouwde Web Crypto API en D1, dus geen npm-installatiestap nodig.
 
 function j(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -41,7 +40,7 @@ async function maakPinHash(pin) {
 
 async function checkPin(pin, hash) {
   try {
-    const [, iterStr, saltB64, dkB64] = hash.split("$");
+    const [, , saltB64, dkB64] = hash.split("$");
     const salt = unb64url(saltB64);
     const verwacht = unb64url(dkB64);
     const dk = await pbkdf2Hash(pin, salt);
@@ -102,7 +101,7 @@ export default {
     const db = env.DB;
 
     try {
-      // ---- Publiek: login/logout/me ----
+      // ---- Publiek: login/logout ----
       if (path === "/api/login" && method === "POST") {
         const { email, pin } = await request.json();
         const user = await db
@@ -127,7 +126,6 @@ export default {
         return j({ ok: true }, 200, { "Set-Cookie": "sessie=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0" });
       }
 
-      // ---- Alles hieronder vereist login ----
       const gebruiker = await huidigeGebruiker(request, env);
 
       if (path === "/api/me") {
@@ -139,8 +137,17 @@ export default {
       const isBeheerder = gebruiker.rol === "beheerder";
 
       if (path === "/api/gebouwen" && method === "GET") {
-        const r = await db.prepare("SELECT DISTINCT gebouw FROM drankconfig ORDER BY gebouw").all();
-        return j({ gebouwen: r.results.map((x) => x.gebouw) });
+        const r = await db.prepare("SELECT naam FROM gebouwen ORDER BY naam").all();
+        return j({ gebouwen: r.results.map((x) => x.naam) });
+      }
+
+      if (path === "/api/zalen" && method === "GET") {
+        const gebouw = url.searchParams.get("gebouw");
+        const r = await db
+          .prepare("SELECT z.naam FROM zalen z JOIN gebouwen g ON g.id=z.gebouw_id WHERE g.naam=? ORDER BY z.naam")
+          .bind(gebouw)
+          .all();
+        return j({ zalen: r.results.map((x) => x.naam) });
       }
 
       if (path === "/api/config" && method === "GET") {
@@ -193,17 +200,12 @@ export default {
           const r = await db.prepare("SELECT id, naam, email, rol, actief FROM gebruikers ORDER BY naam").all();
           return j({ gebruikers: r.results });
         }
-
         if (path === "/api/beheer/gebruiker" && method === "POST") {
           const { naam, email, rol, pin } = await request.json();
           const pin_hash = await maakPinHash(pin);
-          await db
-            .prepare("INSERT INTO gebruikers (naam, email, rol, pin_hash, actief) VALUES (?,?,?,?,1)")
-            .bind(naam, email, rol, pin_hash)
-            .run();
+          await db.prepare("INSERT INTO gebruikers (naam, email, rol, pin_hash, actief) VALUES (?,?,?,?,1)").bind(naam, email, rol, pin_hash).run();
           return j({ ok: true });
         }
-
         if (path === "/api/beheer/gebruiker" && method === "PATCH") {
           const { id, nieuwe_pin, actief } = await request.json();
           if (nieuwe_pin) {
@@ -215,7 +217,6 @@ export default {
           }
           return j({ ok: true });
         }
-
         if (path === "/api/beheer/gebruiker/wijzig" && method === "PATCH") {
           const { id, naam, email, rol } = await request.json();
           await db.prepare("UPDATE gebruikers SET naam=?, email=?, rol=? WHERE id=?").bind(naam, email, rol, id).run();
@@ -223,17 +224,31 @@ export default {
         }
 
         if (path === "/api/beheer/config" && method === "GET") {
-          const gebouwenR = await db.prepare("SELECT DISTINCT gebouw FROM drankconfig ORDER BY gebouw").all();
+          const gebouwenR = await db.prepare("SELECT naam FROM gebouwen ORDER BY naam").all();
           const drankenR = await db
-            .prepare("SELECT dranksoort, categorie, MIN(prijs_per_stuk) as prijs_per_stuk FROM drankconfig GROUP BY dranksoort, categorie ORDER BY categorie, dranksoort")
+            .prepare("SELECT dranksoort, categorie, MIN(prijs_per_stuk) as prijs_per_stuk, MIN(flesjes_per_bak) as flesjes_per_bak FROM drankconfig GROUP BY dranksoort, categorie ORDER BY categorie, dranksoort")
             .all();
           const matrixR = await db.prepare("SELECT gebouw, dranksoort, actief, locatie FROM drankconfig").all();
-          return j({ gebouwen: gebouwenR.results.map((x) => x.gebouw), dranken: drankenR.results, matrix: matrixR.results });
+          return j({ gebouwen: gebouwenR.results.map((x) => x.naam), dranken: drankenR.results, matrix: matrixR.results });
         }
 
-        if (path === "/api/beheer/config/actief" && method === "PUT") {
-          const { gebouw, dranksoort, actief } = await request.json();
-          await db.prepare("UPDATE drankconfig SET actief=? WHERE gebouw=? AND dranksoort=?").bind(actief ? 1 : 0, gebouw, dranksoort).run();
+        if (path === "/api/beheer/config/status" && method === "PUT") {
+          // status: "uit" | "Frigo" | "Koelcel" | "Drankberging"
+          const { gebouw, dranksoort, status } = await request.json();
+          if (status === "uit") {
+            await db.prepare("UPDATE drankconfig SET actief=0 WHERE gebouw=? AND dranksoort=?").bind(gebouw, dranksoort).run();
+          } else {
+            const bestaat = await db.prepare("SELECT id FROM drankconfig WHERE gebouw=? AND dranksoort=?").bind(gebouw, dranksoort).first();
+            if (bestaat) {
+              await db.prepare("UPDATE drankconfig SET actief=1, locatie=? WHERE gebouw=? AND dranksoort=?").bind(status, gebouw, dranksoort).run();
+            } else {
+              const bron = await db.prepare("SELECT categorie, eenheid, flesjes_per_bak, prijs_per_stuk FROM drankconfig WHERE dranksoort=? LIMIT 1").bind(dranksoort).first();
+              await db
+                .prepare("INSERT INTO drankconfig (gebouw, zaal, volgorde, categorie, dranksoort, eenheid, flesjes_per_bak, locatie, prijs_per_stuk, actief) VALUES (?,?,?,?,?,?,?,?,?,1)")
+                .bind(gebouw, "Alle zalen", 999, bron?.categorie || "Overig", dranksoort, bron?.eenheid || "flesje", bron?.flesjes_per_bak || 24, status, bron?.prijs_per_stuk || 0)
+                .run();
+            }
+          }
           return j({ ok: true });
         }
 
@@ -243,18 +258,41 @@ export default {
           return j({ ok: true });
         }
 
-        if (path === "/api/beheer/locaties" && method === "GET") {
-          const gebouw = url.searchParams.get("gebouw");
-          const r = await db
-            .prepare("SELECT id, dranksoort, categorie, locatie, flesjes_per_bak FROM drankconfig WHERE gebouw=? AND actief=1 ORDER BY categorie, dranksoort")
-            .bind(gebouw)
-            .all();
-          return j({ producten: r.results });
+        if (path === "/api/beheer/config/bak" && method === "PUT") {
+          const { dranksoort, flesjes_per_bak } = await request.json();
+          await db.prepare("UPDATE drankconfig SET flesjes_per_bak=? WHERE dranksoort=?").bind(flesjes_per_bak, dranksoort).run();
+          return j({ ok: true });
         }
 
-        if (path === "/api/beheer/locatie" && method === "PUT") {
-          const { id, locatie } = await request.json();
-          await db.prepare("UPDATE drankconfig SET locatie=? WHERE id=?").bind(locatie, id).run();
+        if (path === "/api/beheer/gebouwen" && method === "GET") {
+          const r = await db.prepare("SELECT id, naam FROM gebouwen ORDER BY naam").all();
+          return j({ gebouwen: r.results });
+        }
+        if (path === "/api/beheer/gebouw" && method === "POST") {
+          const { naam } = await request.json();
+          await db.prepare("INSERT OR IGNORE INTO gebouwen (naam) VALUES (?)").bind(naam).run();
+          return j({ ok: true });
+        }
+        if (path === "/api/beheer/gebouw" && method === "DELETE") {
+          const { id } = await request.json();
+          await db.prepare("DELETE FROM zalen WHERE gebouw_id=?").bind(id).run();
+          await db.prepare("DELETE FROM gebouwen WHERE id=?").bind(id).run();
+          return j({ ok: true });
+        }
+
+        if (path === "/api/beheer/zalen" && method === "GET") {
+          const gebouw_id = url.searchParams.get("gebouw_id");
+          const r = await db.prepare("SELECT id, naam FROM zalen WHERE gebouw_id=? ORDER BY naam").bind(gebouw_id).all();
+          return j({ zalen: r.results });
+        }
+        if (path === "/api/beheer/zaal" && method === "POST") {
+          const { gebouw_id, naam } = await request.json();
+          await db.prepare("INSERT INTO zalen (gebouw_id, naam) VALUES (?,?)").bind(gebouw_id, naam).run();
+          return j({ ok: true });
+        }
+        if (path === "/api/beheer/zaal" && method === "DELETE") {
+          const { id } = await request.json();
+          await db.prepare("DELETE FROM zalen WHERE id=?").bind(id).run();
           return j({ ok: true });
         }
       }
