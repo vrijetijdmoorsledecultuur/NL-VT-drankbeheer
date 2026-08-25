@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/verstuur-toegangscodes",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}

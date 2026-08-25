@@ -1,0 +1,70 @@
+import { createClient } from "@/lib/supabase/server";
+import type { Building, Reservation, Product, VerbruikRegel, Profile } from "@/lib/types";
+import SnelleVerwerkingView from "@/components/SnelleVerwerkingView";
+
+export default async function VerwerkingPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const [
+    { data: profile },
+    { data: buildings },
+    { data: reservations },
+    { data: products },
+    { data: productBuildingLinks },
+    { data: leveringen },
+    { data: eigenVerbruik },
+  ] = await Promise.all([
+    supabase.from("profiles").select("id, email, full_name, role").eq("id", user!.id).single<Profile>(),
+    supabase.from("buildings").select("id, name, actief").eq("actief", true).order("name"),
+    supabase
+      .from("reservations")
+      .select("id, building_id, contact_id, huurder, adres, telefoon, activiteit, ruimte, begin_datum, eind_datum, toegang_start, activiteit_start, activiteit_eind, toegang_eind, status, bron")
+      .order("begin_datum", { ascending: false })
+      .limit(200),
+    supabase
+      .from("products")
+      .select("id, name, prijs, categorie, verpakking, actief, afrekenmodus")
+      .eq("actief", true)
+      .eq("afrekenmodus", "standaard")
+      .order("categorie")
+      .order("name"),
+    supabase.from("product_buildings").select("product_id, building_id, volgorde"),
+    supabase
+      .from("leveringen")
+      .select("id, reservation_id, building_id, datum, product_id, aantal, wie")
+      .is("reservation_id", null)
+      .order("datum", { ascending: false })
+      .limit(50),
+    supabase
+      .from("eigen_verbruik")
+      .select("id, reservation_id, building_id, datum, product_id, aantal, wie")
+      .is("reservation_id", null)
+      .order("datum", { ascending: false })
+      .limit(50),
+  ]);
+
+  const canEdit =
+    profile?.role === "systeembeheerder" ||
+    profile?.role === "administratie" ||
+    profile?.role === "gebouwbeheerder" ||
+    profile?.role === "theatertechnieker";
+  // Theatertechniekers registreren enkel hun eigen verbruik, geen leveringen
+  // (dat blijft voorbehouden voor administratie/beheerders).
+  const allowLeveringen = canEdit && profile?.role !== "theatertechnieker";
+
+  return (
+    <SnelleVerwerkingView
+      buildings={(buildings as Building[]) || []}
+      reservations={(reservations as Reservation[]) || []}
+      products={(products as Product[]) || []}
+      productBuildingLinks={(productBuildingLinks as { product_id: string; building_id: string; volgorde: number }[]) || []}
+      recentLeveringen={(leveringen as VerbruikRegel[]) || []}
+      recentEigenVerbruik={(eigenVerbruik as VerbruikRegel[]) || []}
+      canEdit={canEdit}
+      allowLeveringen={allowLeveringen}
+    />
+  );
+}
