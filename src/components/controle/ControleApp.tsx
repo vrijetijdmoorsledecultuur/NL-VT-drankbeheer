@@ -3,14 +3,15 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, AlertTriangle } from "lucide-react";
-import type { Building, Reservation, Product, Telling, VerbruikRegel, Contact, RuweTelling, RuweTellingRegel, Telplek, ReservationToegangscode } from "@/lib/types";
+import type { Building, Reservation, Product, Telling, VerbruikRegel, Contact, RuweTelling, RuweTellingRegel, Telplek, ReservationToegangscode, ProductPrijs, ReservationBoete, Factuur, FactuurRegel } from "@/lib/types";
 import ReservatieDetail from "./ReservatieDetail";
 import RuweTellingenQueue from "./RuweTellingenQueue";
+import FacturenGoedkeuring from "./FacturenGoedkeuring";
 import { formatDate } from "@/lib/format";
 
-function Pill({ tone, children }: { tone: "amber" | "green"; children: React.ReactNode }) {
-  const tones = { amber: "bg-[#FDF0DA] text-[#B4741A]", green: "bg-[#E4F6EE] text-[#1B8E63]" };
-  return <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${tones[tone]}`}>{children}</span>;
+function Pill({ tone, children }: { tone: "amber" | "green" | "blue"; children: React.ReactNode }) {
+  const tones = { amber: "bg-[#FDF0DA] text-[#B4741A]", green: "bg-[#E4F6EE] text-[#1B8E63]", blue: "bg-[#E7F0FD] text-[#2F6FCB]" };
+  return <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${tones[tone]}`}>{children}</span>;
 }
 
 function displayHuurder(res: Reservation, contacts: Contact[]) {
@@ -27,9 +28,13 @@ export default function ControleApp({
   leveringen,
   eigenVerbruik,
   boetes,
+  prijzen,
+  facturen,
+  factuurRegels,
   extraProducten,
   contacts,
   ruweTellingen,
+  verwerkteTellingen,
   ruweTellingRegels,
   telplekken,
   toegangscodes,
@@ -43,10 +48,14 @@ export default function ControleApp({
   tellingen: Telling[];
   leveringen: VerbruikRegel[];
   eigenVerbruik: VerbruikRegel[];
-  boetes: { reservation_id: string; product_id: string }[];
+  boetes: ReservationBoete[];
+  prijzen: ProductPrijs[];
+  facturen: Factuur[];
+  factuurRegels: FactuurRegel[];
   extraProducten: { reservation_id: string; product_id: string }[];
   contacts: Contact[];
   ruweTellingen: RuweTelling[];
+  verwerkteTellingen: RuweTelling[];
   ruweTellingRegels: RuweTellingRegel[];
   telplekken: Telplek[];
   toegangscodes: ReservationToegangscode[];
@@ -87,6 +96,8 @@ export default function ControleApp({
         leveringen={leveringen}
         eigenVerbruik={eigenVerbruik}
         boeteProductIds={boetes.filter((b) => b.reservation_id === res.id).map((b) => b.product_id)}
+        boetes={boetes.filter((b) => b.reservation_id === res.id)}
+        prijzen={prijzen}
         extraProductIds={extraProducten.filter((e) => e.reservation_id === res.id).map((e) => e.product_id)}
         toegangscodes={toegangscodes.filter((t) => t.reservation_id === res.id)}
         huurderNaam={displayHuurder(res, contacts)}
@@ -119,7 +130,13 @@ export default function ControleApp({
                 <div className="font-medium text-[#171A2B]">{displayHuurder(r, contacts)}</div>
                 <div className="text-xs text-[#8A8FA8]">{formatDate(r.begin_datum)} · {r.activiteit || "—"}</div>
               </div>
-              {r.status === "wacht" ? <Pill tone="amber">Actie nodig</Pill> : <Pill tone="green">In orde</Pill>}
+              {r.status === "wacht" ? (
+                <Pill tone="amber">Actie nodig</Pill>
+              ) : r.recreatex_verwerkt ? (
+                <Pill tone="green">Verwerkt in Recreatex</Pill>
+              ) : (
+                <Pill tone="blue">Klaar voor Recreatex</Pill>
+              )}
             </button>
           ))}
         </div>
@@ -138,8 +155,11 @@ export default function ControleApp({
       </div>
       <p className="text-[#8A8FA8] text-sm mb-6">Kies een gebouw om de tellingen na te kijken.</p>
 
+      <FacturenGoedkeuring facturen={facturen} factuurRegels={factuurRegels} buildings={buildings} products={products} />
+
       <RuweTellingenQueue
         ruweTellingen={ruweTellingen}
+        verwerkteTellingen={verwerkteTellingen}
         ruweTellingRegels={ruweTellingRegels}
         reservations={reservations}
         buildings={buildings}
