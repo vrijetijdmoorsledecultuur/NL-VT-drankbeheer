@@ -70,11 +70,22 @@ export default function ControleApp({
     () =>
       buildings.map((b) => {
         const list = reservations.filter((r) => r.building_id === b.id);
-        return { building: b, pending: list.filter((r) => r.status === "wacht").length, total: list.length };
+        const openReservaties = list.filter((r) => r.status === "wacht");
+        // Enkel reservaties die ook effectief drankgegevens hebben (telling,
+        // levering of eigen verbruik) vragen om een dranktelling te
+        // controleren — een reservatie zonder verbruik (bv. een vereniging
+        // die nooit drinkt) hoeft daar niet in mee te tellen.
+        const metVerbruik = openReservaties.filter(
+          (r) =>
+            tellingen.some((t) => t.reservation_id === r.id && (t.vooraf != null || t.nadien != null)) ||
+            leveringen.some((l) => l.reservation_id === r.id) ||
+            eigenVerbruik.some((e) => e.reservation_id === r.id)
+        );
+        return { building: b, openReservaties: openReservaties.length, metVerbruik: metVerbruik.length, total: list.length };
       }),
-    [buildings, reservations]
+    [buildings, reservations, tellingen, leveringen, eigenVerbruik]
   );
-  const totaalTeControleren = perBuilding.reduce((s, b) => s + b.pending, 0);
+  const totaalTeControleren = perBuilding.reduce((s, b) => s + b.metVerbruik, 0);
 
   function refresh() {
     router.refresh();
@@ -150,7 +161,7 @@ export default function ControleApp({
         <h1 className="text-2xl font-bold text-[#171A2B]">Waar is controle nodig?</h1>
         <div className="text-right">
           <div className="text-3xl font-bold text-[#171A2B]">{totaalTeControleren}</div>
-          <div className="text-xs text-[#8A8FA8]">totaal te controleren</div>
+          <div className="text-xs text-[#8A8FA8]">dranktellingen te controleren</div>
         </div>
       </div>
       <p className="text-[#8A8FA8] text-sm mb-6">Kies een gebouw om de tellingen na te kijken.</p>
@@ -170,27 +181,28 @@ export default function ControleApp({
       />
 
       <div className="grid md:grid-cols-3 gap-4">
-        {perBuilding.map(({ building, pending }) => (
+        {perBuilding.map(({ building, openReservaties, metVerbruik }) => (
           <button
             key={building.id}
             onClick={() => setOpenBuildingId(building.id)}
             className={`text-left rounded-2xl border-t-4 bg-white p-5 hover:shadow-md transition-shadow border border-[#ECECF3] ${
-              pending > 0 ? "border-t-[#E2A93A]" : "border-t-[#1FAE7A]"
+              metVerbruik > 0 ? "border-t-[#E2A93A]" : "border-t-[#1FAE7A]"
             }`}
           >
             <div className="flex items-center justify-between mb-4">
               <span className="font-semibold text-[#171A2B]">{building.name}</span>
-              {pending > 0 ? (
+              {metVerbruik > 0 ? (
                 <Pill tone="amber">Actie nodig</Pill>
               ) : (
                 <Pill tone="green">In orde</Pill>
               )}
             </div>
-            <div className="text-3xl font-bold text-[#171A2B] mb-1">{pending}</div>
-            <div className="text-sm text-[#8A8FA8] flex items-center gap-1">
-              {pending > 0 && <AlertTriangle size={13} className="text-[#E2A93A]" />}
-              reservatie(s) te controleren
+            <div className="text-3xl font-bold text-[#171A2B] mb-1">{metVerbruik}</div>
+            <div className="text-sm text-[#8A8FA8] flex items-center gap-1 mb-2">
+              {metVerbruik > 0 && <AlertTriangle size={13} className="text-[#E2A93A]" />}
+              dranktelling(en) te controleren
             </div>
+            <div className="text-xs text-[#B0B4CC]">{openReservaties} zaalreservatie(s) nog niet afgerond</div>
           </button>
         ))}
       </div>
