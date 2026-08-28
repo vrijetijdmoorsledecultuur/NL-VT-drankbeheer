@@ -2,14 +2,20 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardCheck, X, AlertTriangle } from "lucide-react";
+import { ClipboardCheck, X, AlertTriangle, Download, ChevronDown, ChevronUp } from "lucide-react";
 import type { Building, Product, Reservation, RuweTelling, RuweTellingRegel, Telling, Telplek } from "@/lib/types";
-import { approveRuweTelling, dismissRuweTelling } from "@/app/(app)/controle/actions";
-import { formatDate } from "@/lib/format";
+import { approveRuweTelling, approveControletelling, dismissRuweTelling } from "@/app/(app)/controle/actions";
+import { formatDate, formatDateTime } from "@/lib/format";
 import PincodeConfirmModal from "@/components/PincodeConfirmModal";
+import { genereerTellingPdf } from "@/lib/genereerTellingPdf";
+
+function typeLabel(type: RuweTelling["type"]) {
+  return type === "vooraf" ? "Vooraf" : type === "nadien" ? "Nadien" : "Controletelling";
+}
 
 export default function RuweTellingenQueue({
   ruweTellingen,
+  verwerkteTellingen,
   ruweTellingRegels,
   reservations,
   buildings,
@@ -19,6 +25,7 @@ export default function RuweTellingenQueue({
   heeftPincode = false,
 }: {
   ruweTellingen: RuweTelling[];
+  verwerkteTellingen: RuweTelling[];
   ruweTellingRegels: RuweTellingRegel[];
   reservations: Reservation[];
   buildings: Building[];
@@ -32,15 +39,19 @@ export default function RuweTellingenQueue({
   const [amounts, setAmounts] = useState<Record<string, number>>({});
   const [pending, startTransition] = useTransition();
   const [pincodeModalOpen, setPincodeModalOpen] = useState(false);
+  const [toonVerwerkt, setToonVerwerkt] = useState(false);
 
-  if (ruweTellingen.length === 0) return null;
+  // Bewust geen early-return bij een lege lijst: dit vast onderdeel van het
+  // scherm laten verdwijnen zorgt ervoor dat medewerkers niet meer weten dat
+  // deze functie bestaat. Toon in plaats daarvan een lege-staat hieronder.
 
-  function voorafFor(reservationId: string, productId: string) {
+  function voorafFor(reservationId: string | null, productId: string) {
+    if (!reservationId) return null;
     return tellingen.find((t) => t.reservation_id === reservationId && t.product_id === productId)?.vooraf ?? null;
   }
 
-  function telplekNaam(telplekId: string | null) {
-    return telplekId ? telplekken.find((t) => t.id === telplekId)?.naam : null;
+  function telplekNaam(telplekId: string | null): string | null {
+    return telplekId ? telplekken.find((t) => t.id === telplekId)?.naam ?? null : null;
   }
 
   function hasConflict(t: RuweTelling) {
@@ -61,25 +72,55 @@ export default function RuweTellingenQueue({
     setOpenId(t.id);
   }
 
+  function downloadPdf(t: RuweTelling) {
+    const regels = ruweTellingRegels.filter((r) => r.ruwe_telling_id === t.id);
+    const reservation = reservations.find((r) => r.id === t.reservation_id) || null;
+    const gebouwNaam = buildings.find((b) => b.id === t.building_id)?.name || "?";
+    genereerTellingPdf(t, regels, products, gebouwNaam, reservation, telplekNaam(t.telplek_id));
+  }
+
   const open = ruweTellingen.find((t) => t.id === openId);
 
   if (open) {
     const reservation = reservations.find((r) => r.id === open.reservation_id);
     const building = buildings.find((b) => b.id === open.building_id);
+    const isControle = open.type === "controle";
     const regelProductIds = ruweTellingRegels
       .filter((r) => r.ruwe_telling_id === open.id)
       .map((r) => r.product_id);
+
+    function goedkeuren() {
+      startTransition(async () => {
+        const regels = regelProductIds.map((productId) => ({ productId, aantal: amounts[productId] ?? 0 }));
+        if (isControle) {
+          await approveControletelling(open!.id, open!.building_id, regels);
+        } else if (reservation) {
+          await approveRuweTelling(open!.id, reservation.id, open!.type as "vooraf" | "nadien", regels);
+        }
+        const gebouwNaam = buildings.find((b) => b.id === open!.building_id)?.name || "?";
+        genereerTellingPdf(
+          open!,
+          regelProductIds.map((productId) => ({ ruwe_telling_id: open!.id, product_id: productId, aantal: amounts[productId] ?? 0 })),
+          products,
+          gebouwNaam,
+          reservation || null,
+          telplekNaam(open!.telplek_id)
+        );
+        setOpenId(null);
+        router.refresh();
+      });
+    }
 
     return (
       <div className="bg-white rounded-2xl border border-[#ECECF3] p-5 mb-6">
         <div className="flex items-start justify-between mb-1">
           <div>
             <div className="font-bold text-[#171A2B]">
-              {building?.name} &middot; {open.type === "vooraf" ? "Vooraf" : "Nadien"}
+              {building?.name} &middot; {typeLabel(open.type)}
               {telplekNaam(open.telplek_id) && <span className="text-[#8A8FA8] font-normal"> &middot; {telplekNaam(open.telplek_id)}</span>}
             </div>
             <div className="text-xs text-[#8A8FA8]">
-              {reservation?.huurder} &middot; {formatDate(reservation?.begin_datum)}
+              {isControle ? "Los van een reservatie" : `${reservation?.huurder || "?"} · ${formatDate(reservation?.begin_datum)}`}
               {open.ingevoerd_door ? ` \u00b7 ingevoerd door ${open.ingevoerd_door}` : ""}
             </div>
           </div>
@@ -133,24 +174,8 @@ export default function RuweTellingenQueue({
 
         <div className="flex gap-2 mt-5">
           <button
-            disabled={pending || !reservation}
-            onClick={() => {
-              if (heeftPincode) {
-                setPincodeModalOpen(true);
-              } else {
-                startTransition(async () => {
-                  if (!reservation) return;
-                  await approveRuweTelling(
-                    open.id,
-                    reservation.id,
-                    open.type,
-                    regelProductIds.map((productId) => ({ productId, aantal: amounts[productId] ?? 0 }))
-                  );
-                  setOpenId(null);
-                  router.refresh();
-                });
-              }
-            }}
+            disabled={pending || (!isControle && !reservation)}
+            onClick={() => (heeftPincode ? setPincodeModalOpen(true) : goedkeuren())}
             className="flex-1 py-2.5 rounded-lg bg-[#6D5AE6] text-white text-sm font-semibold disabled:opacity-50"
           >
             Goedkeuren &amp; verwerken
@@ -173,21 +198,11 @@ export default function RuweTellingenQueue({
         <PincodeConfirmModal
           open={pincodeModalOpen}
           title="Telling goedkeuren en verwerken?"
-          description="Dit telt vanaf nu mee in de voorraad en facturatie."
+          description={isControle ? "Dit wordt het nieuwe ijkpunt voor de live voorraad." : "Dit telt vanaf nu mee in de voorraad en facturatie."}
           onCancel={() => setPincodeModalOpen(false)}
           onConfirmed={() => {
             setPincodeModalOpen(false);
-            startTransition(async () => {
-              if (!reservation) return;
-              await approveRuweTelling(
-                open.id,
-                reservation.id,
-                open.type,
-                regelProductIds.map((productId) => ({ productId, aantal: amounts[productId] ?? 0 }))
-              );
-              setOpenId(null);
-              router.refresh();
-            });
+            goedkeuren();
           }}
         />
       </div>
@@ -203,11 +218,14 @@ export default function RuweTellingenQueue({
         <div>
           <div className="font-bold text-[#171A2B]">Tellingen ter controle</div>
           <div className="text-xs text-[#8A8FA8]">
-            Ingevoerd via de tellen-link, telt pas mee na jouw goedkeuring.
+            Ingevoerd via de tellen-link, telt pas mee na jouw goedkeuring. Bij goedkeuren wordt automatisch een PDF gedownload.
           </div>
         </div>
       </div>
       <div className="divide-y divide-[#ECECF3]">
+        {ruweTellingen.length === 0 && (
+          <div className="px-5 py-6 text-sm text-[#B0B4CC]">Niets op dit moment — nieuwe tellingen verschijnen hier automatisch.</div>
+        )}
         {ruweTellingen.map((t) => {
           const reservation = reservations.find((r) => r.id === t.reservation_id);
           const building = buildings.find((b) => b.id === t.building_id);
@@ -220,7 +238,7 @@ export default function RuweTellingenQueue({
             >
               <div>
                 <div className="text-sm font-semibold text-[#171A2B]">
-                  {building?.name} &middot; {t.type === "vooraf" ? "Vooraf" : "Nadien"}
+                  {building?.name} &middot; {typeLabel(t.type)}
                   {telplekNaam(t.telplek_id) && <span className="text-[#8A8FA8] font-normal"> &middot; {telplekNaam(t.telplek_id)}</span>}
                   {!t.telplek_id && (
                     <span className="text-[10px] font-semibold uppercase tracking-wide bg-[#E7F0FD] text-[#2F6FCB] rounded-full px-2 py-0.5 ml-2">
@@ -229,7 +247,7 @@ export default function RuweTellingenQueue({
                   )}
                 </div>
                 <div className="text-xs text-[#8A8FA8]">
-                  {reservation?.huurder || "Onbekende reservatie"}
+                  {t.type === "controle" ? "Los van een reservatie" : reservation?.huurder || "Onbekende reservatie"}
                   {t.ingevoerd_door ? ` \u00b7 ${t.ingevoerd_door}` : ""}
                 </div>
               </div>
@@ -246,6 +264,45 @@ export default function RuweTellingenQueue({
           );
         })}
       </div>
+
+      {verwerkteTellingen.length > 0 && (
+        <div className="border-t border-[#ECECF3]">
+          <button
+            onClick={() => setToonVerwerkt((v) => !v)}
+            className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-[#6D5AE6]"
+          >
+            Recent goedgekeurd ({verwerkteTellingen.length})
+            {toonVerwerkt ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </button>
+          {toonVerwerkt && (
+            <div className="divide-y divide-[#ECECF3]">
+              {verwerkteTellingen.map((t) => {
+                const reservation = reservations.find((r) => r.id === t.reservation_id);
+                const building = buildings.find((b) => b.id === t.building_id);
+                return (
+                  <div key={t.id} className="flex items-center justify-between px-5 py-2.5">
+                    <div>
+                      <div className="text-sm text-[#171A2B]">
+                        {building?.name} &middot; {typeLabel(t.type)}
+                        {telplekNaam(t.telplek_id) && <span className="text-[#8A8FA8]"> &middot; {telplekNaam(t.telplek_id)}</span>}
+                      </div>
+                      <div className="text-xs text-[#8A8FA8]">
+                        {t.type === "controle" ? "Los van een reservatie" : reservation?.huurder || "?"} &middot; {formatDateTime(t.created_at)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => downloadPdf(t)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#ECECF3] text-xs font-semibold text-[#171A2B] hover:bg-[#F7F7FB]"
+                    >
+                      <Download size={12} /> PDF
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
