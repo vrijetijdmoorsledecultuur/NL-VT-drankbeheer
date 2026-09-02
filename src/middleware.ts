@@ -23,6 +23,17 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
+  if (user) {
+    const { data: profile } = await supabase.from("profiles").select("active").eq("id", user.id).maybeSingle();
+    if (profile?.active === false) {
+      await supabase.auth.signOut();
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("error", "Dit account is niet actief.");
+      return NextResponse.redirect(url);
+    }
+  }
+
   const isLoginPage = request.nextUrl.pathname.startsWith("/login");
   const isTellerApp = request.nextUrl.pathname.startsWith("/tellen");
   const isGastApp = request.nextUrl.pathname.startsWith("/gast");

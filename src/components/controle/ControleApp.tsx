@@ -107,8 +107,6 @@ export default function ControleApp({
         leveringen={leveringen}
         eigenVerbruik={eigenVerbruik}
         boeteProductIds={boetes.filter((b) => b.reservation_id === res.id).map((b) => b.product_id)}
-        boetes={boetes.filter((b) => b.reservation_id === res.id)}
-        prijzen={prijzen}
         extraProductIds={extraProducten.filter((e) => e.reservation_id === res.id).map((e) => e.product_id)}
         toegangscodes={toegangscodes.filter((t) => t.reservation_id === res.id)}
         huurderNaam={displayHuurder(res, contacts)}

@@ -17,28 +17,30 @@ export default async function LoginPage({
 
         <form action={login} className="bg-white rounded-2xl border border-[#ECECF3] p-6 space-y-4">
           <div>
-            <label className="text-xs font-semibold text-[#8A8FA8] uppercase" htmlFor="email">
-              E-mailadres
+            <label className="text-xs font-semibold text-[#8A8FA8] uppercase" htmlFor="identifier">
+              E-mailadres of gsm-nummer
             </label>
             <input
-              id="email"
-              name="email"
-              type="email"
+              id="identifier"
+              name="identifier"
+              type="text"
               required
-              autoComplete="email"
+              autoComplete="username"
+              placeholder="naam@voorbeeld.be of 0470 00 00 00"
               className="w-full mt-1 rounded-lg border border-[#ECECF3] px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="text-xs font-semibold text-[#8A8FA8] uppercase" htmlFor="password">
-              Wachtwoord
+            <label className="text-xs font-semibold text-[#8A8FA8] uppercase" htmlFor="pin">
+              Persoonlijke pincode
             </label>
             <input
-              id="password"
-              name="password"
+              id="pin"
+              name="pin"
               type="password"
               required
               autoComplete="current-password"
+              placeholder="••••••"
               className="w-full mt-1 rounded-lg border border-[#ECECF3] px-3 py-2 text-sm"
             />
           </div>
@@ -58,7 +60,10 @@ export default async function LoginPage({
         </form>
 
         <p className="text-center text-xs text-[#8A8FA8] mt-4">
-          Geen account? Vraag de systeembeheerder om je uit te nodigen via Beheer &amp; rollen.
+          Geen toegang? Vraag de beheerder om je e-mailadres of gsm-nummer te activeren.
+        </p>
+        <p className="text-center text-[11px] text-[#A8ABBA] mt-2">
+          Een bestaand beheeraccount kan eerst nog het huidige wachtwoord gebruiken en daarna een pincode instellen.
         </p>
       </div>
     </div>

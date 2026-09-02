@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Beheerportaal — Zalen & verbruik",
+  title: "Drankbeheer Vrije Tijd",
   description: "Reservaties, drankregistraties en voorraadbeheer",
 };
 

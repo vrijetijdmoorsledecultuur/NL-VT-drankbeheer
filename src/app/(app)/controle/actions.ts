@@ -137,6 +137,35 @@ export async function approveRuweTelling(
   revalidatePath("/controle");
 }
 
+export async function approveControletelling(
+  ruweTellingId: string,
+  _buildingId: string,
+  _regels: { productId: string; aantal: number }[]
+) {
+  const supabase = await createClient();
+  await supabase.from("ruwe_tellingen").update({ status: "verwerkt" }).eq("id", ruweTellingId);
+  revalidatePath("/controle");
+  revalidatePath("/voorraad");
+}
+
+export async function approveFactuur(factuurId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).single();
+  await supabase.from("facturen").update({ status: "goedgekeurd", goedgekeurd_door: profile?.full_name || profile?.email || user.email, goedgekeurd_op: new Date().toISOString() }).eq("id", factuurId);
+  revalidatePath("/controle");
+}
+
+export async function markFactuurRecreatex(factuurId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).single();
+  await supabase.from("facturen").update({ recreatex_verwerkt: true, recreatex_verwerkt_door: profile?.full_name || profile?.email || user.email, recreatex_verwerkt_op: new Date().toISOString() }).eq("id", factuurId);
+  revalidatePath("/controle");
+}
+
 export async function dismissRuweTelling(ruweTellingId: string) {
   const supabase = await createClient();
   await supabase.from("ruwe_tellingen").update({ status: "verwerkt" }).eq("id", ruweTellingId);

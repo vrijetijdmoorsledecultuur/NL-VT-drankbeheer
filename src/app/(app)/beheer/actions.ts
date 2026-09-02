@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Role } from "@/lib/types";
+import { normalizeEmail, normalizePhone, phoneLoginEmail, validLoginPin } from "@/lib/login";
 
 // Elke actie hier controleert eerst dat de ingelogde gebruiker systeembeheerder is,
 // vóór de service-role (admin) client gebruikt wordt. Zo blijft rolbeheer voorbehouden
@@ -17,6 +18,68 @@ async function assertSysteembeheerder() {
 
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
   if (profile?.role !== "systeembeheerder") throw new Error("Enkel de systeembeheerder mag dit doen.");
+  return user.id;
+}
+
+export async function createManagedUser(formData: FormData) {
+  await assertSysteembeheerder();
+
+  const fullName = String(formData.get("full_name") || "").trim();
+  const email = normalizeEmail(String(formData.get("email") || ""));
+  const phone = normalizePhone(String(formData.get("phone") || ""));
+  const pin = String(formData.get("pin") || "");
+  const role = String(formData.get("role") || "administratie") as Role;
+  const buildingIds = formData.getAll("building_ids").map(String);
+
+  if (!fullName || (!email && !phone) || !validLoginPin(pin)) {
+    return { ok: false as const, error: "Vul een naam, minstens één geldig contactgegeven en een pincode van zes cijfers in." };
+  }
+
+  const admin = createAdminClient();
+  const loginEmail = email || phoneLoginEmail(phone!);
+  const { data, error } = await admin.auth.admin.createUser({
+    email: loginEmail,
+    password: pin,
+    email_confirm: true,
+    user_metadata: { full_name: fullName, phone },
+  });
+  if (error || !data.user) {
+    return { ok: false as const, error: error?.message.includes("already") ? "Dit e-mailadres is al gekoppeld aan een account." : "Het account kon niet worden aangemaakt." };
+  }
+
+  const { error: profileError } = await admin
+    .from("profiles")
+    .update({ full_name: fullName, phone, role, active: true })
+    .eq("id", data.user.id);
+  if (profileError) {
+    await admin.auth.admin.deleteUser(data.user.id);
+    return { ok: false as const, error: "Dit gsm-nummer of e-mailadres is al gekoppeld aan een account." };
+  }
+
+  if (role === "gebouwbeheerder" && buildingIds.length > 0) {
+    await admin.from("profile_buildings").insert(buildingIds.map((building_id) => ({ profile_id: data.user.id, building_id })));
+  }
+
+  revalidatePath("/beheer");
+  return { ok: true as const };
+}
+
+export async function setProfileActive(profileId: string, active: boolean) {
+  const currentUserId = await assertSysteembeheerder();
+  if (profileId === currentUserId) return { ok: false as const, error: "Je kunt je eigen beheeraccount niet deactiveren." };
+  const admin = createAdminClient();
+  await admin.from("profiles").update({ active }).eq("id", profileId);
+  revalidatePath("/beheer");
+  return { ok: true as const };
+}
+
+export async function resetLoginPin(profileId: string, pin: string) {
+  await assertSysteembeheerder();
+  if (!validLoginPin(pin)) return { ok: false as const, error: "De pincode moet uit zes cijfers bestaan." };
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(profileId, { password: pin });
+  if (error) return { ok: false as const, error: "De pincode kon niet worden gewijzigd." };
+  return { ok: true as const };
 }
 
 export async function inviteUser(formData: FormData) {

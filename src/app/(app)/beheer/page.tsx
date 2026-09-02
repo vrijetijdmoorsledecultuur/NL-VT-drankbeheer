@@ -1,10 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Profile, Building, PendingRole } from "@/lib/types";
+import type { Profile, Building } from "@/lib/types";
 import BeheerTable from "@/components/BeheerTable";
-import PendingRolesTable from "@/components/PendingRolesTable";
-import InviteForm from "@/components/InviteForm";
-import AddPendingRoleForm from "@/components/AddPendingRoleForm";
+import ManagedUserForm from "@/components/ManagedUserForm";
 import BeheerOverview from "@/components/BeheerOverview";
 
 export default async function BeheerPage() {
@@ -24,18 +22,14 @@ export default async function BeheerPage() {
     { data: allBuildings },
     { data: buildings },
     { data: profileBuildings },
-    { data: pendingRoles },
-    { data: pendingRoleBuildings },
     { count: productCount },
     { count: activeProductCount },
     { count: contactCount },
   ] = await Promise.all([
-    supabase.from("profiles").select("id, email, full_name, role").order("full_name"),
+    supabase.from("profiles").select("id, email, phone, full_name, role, active").order("full_name"),
     supabase.from("buildings").select("id, name, actief").order("name"),
     supabase.from("buildings").select("id, name, actief").eq("actief", true).order("name"),
     supabase.from("profile_buildings").select("profile_id, building_id"),
-    supabase.from("pending_roles").select("id, email, full_name, role").order("created_at"),
-    supabase.from("pending_role_buildings").select("pending_id, building_id"),
     supabase.from("products").select("id", { count: "exact", head: true }),
     supabase.from("products").select("id", { count: "exact", head: true }).eq("actief", true),
     supabase.from("contacts").select("id", { count: "exact", head: true }),
@@ -43,7 +37,6 @@ export default async function BeheerPage() {
 
   const buildingList = (buildings as Building[]) || [];
   const allBuildingsList = (allBuildings as Building[]) || [];
-  const pendingRoleList = (pendingRoles as PendingRole[]) || [];
   const profileList = (profiles as Profile[]) || [];
 
   return (
@@ -60,29 +53,13 @@ export default async function BeheerPage() {
         activeProductCount={activeProductCount ?? 0}
         contactCount={contactCount ?? 0}
         userCount={profileList.length}
-        pendingRoleCount={pendingRoleList.length}
+        pendingRoleCount={0}
       />
 
-      <div id="rollen-klaarzetten" className="scroll-mt-6">
-        <h2 className="text-lg font-bold text-[#171A2B] mb-1">Rollen klaarzetten</h2>
-        <p className="text-[#8A8FA8] text-sm mb-4">
-          Stel alvast naam, rol en gebouw in, nog vóór er een uitnodiging verstuurd wordt. Zodra je op &quot;Nodig
-          uit&quot; klikt, krijgt die persoon meteen de juiste rol.
-        </p>
-        <AddPendingRoleForm buildings={buildingList} />
-        <div className="mt-4">
-          <PendingRolesTable
-            pendingRoles={pendingRoleList}
-            buildings={buildingList}
-            pendingRoleBuildings={(pendingRoleBuildings as { pending_id: string; building_id: string }[]) || []}
-          />
-        </div>
-      </div>
-
       <div id="actieve-gebruikers" className="scroll-mt-6">
-        <h2 className="text-lg font-bold text-[#171A2B] mb-1 mt-10">Actieve gebruikers</h2>
-        <p className="text-[#8A8FA8] text-sm mb-4">Mensen die al een account hebben.</p>
-        <InviteForm />
+        <h2 className="text-lg font-bold text-[#171A2B] mb-1">Gebruikers &amp; toegang</h2>
+        <p className="text-[#8A8FA8] text-sm mb-4">Bepaal wie via een e-mailadres of gsm-nummer mag aanmelden en welke rol die persoon krijgt.</p>
+        <ManagedUserForm buildings={buildingList} />
         <div className="mt-4">
           <BeheerTable
             profiles={profileList}

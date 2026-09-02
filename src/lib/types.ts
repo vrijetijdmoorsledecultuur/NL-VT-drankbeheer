@@ -3,8 +3,10 @@ export type Role = "systeembeheerder" | "afdelingshoofd" | "gebouwbeheerder" | "
 export type Profile = {
   id: string;
   email: string;
+  phone?: string | null;
   full_name: string | null;
   role: Role;
+  active?: boolean;
   pincode_hash?: string | null;
 };
 
@@ -28,6 +30,7 @@ export type VerbruikRegel = {
 export type ReservationBoete = {
   reservation_id: string;
   product_id: string;
+  bewijs_url?: string | null;
 };
 
 export type Contact = {
@@ -56,6 +59,9 @@ export type Reservation = {
   toegang_eind: string | null;
   status: "wacht" | "gecontroleerd";
   bron: "pdf" | "manueel";
+  recreatex_verwerkt?: boolean;
+  recreatex_verwerkt_door?: string | null;
+  recreatex_verwerkt_op?: string | null;
 };
 
 export type PendingRole = {
@@ -75,8 +81,8 @@ export type Building = {
 export type RuweTelling = {
   id: string;
   building_id: string;
-  reservation_id: string;
-  type: "vooraf" | "nadien";
+  reservation_id: string | null;
+  type: "vooraf" | "nadien" | "controle";
   ingevoerd_door: string | null;
   status: "open" | "verwerkt";
   afwijking_bevestigd: boolean;
@@ -164,6 +170,38 @@ export type RuweTellingRegel = {
   ruwe_telling_id: string;
   product_id: string;
   aantal: number;
+};
+
+export type ProductPrijs = {
+  id: string;
+  product_id: string;
+  prijs: number;
+  geldig_vanaf: string;
+  created_at: string;
+};
+
+export type Factuur = {
+  id: string;
+  building_id: string;
+  naam: string;
+  type: string;
+  datum: string;
+  bedrag: number;
+  wie: string | null;
+  created_at: string;
+  status: string;
+  goedgekeurd_door: string | null;
+  goedgekeurd_op: string | null;
+  recreatex_verwerkt: boolean;
+  recreatex_verwerkt_door: string | null;
+  recreatex_verwerkt_op: string | null;
+};
+
+export type FactuurRegel = {
+  factuur_id: string;
+  product_id: string;
+  aantal: number;
+  prijs: number;
 };
 
 export type Afrekenmodus = "standaard" | "toeslag";
