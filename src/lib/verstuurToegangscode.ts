@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { resend, AFZENDER } from "@/lib/resend";
+import { getResend, AFZENDER } from "@/lib/resend";
 
 type ToegangscodeMetGegevens = {
   id: string;
@@ -22,6 +22,7 @@ export async function verstuurToegangscodeMail(
   const activiteit = item.reservations?.activiteit || "";
 
   try {
+    const resend = getResend();
     await resend.emails.send({
       from: AFZENDER,
       to: item.verstuur_email,
