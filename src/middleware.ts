@@ -22,8 +22,14 @@ export async function middleware(request: NextRequest) {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
+  const pathname = request.nextUrl.pathname;
+  const isLoginPage = pathname.startsWith("/login");
+  const isRecoveryPage = pathname.startsWith("/pincode-herstellen");
+  const isTellerApp = pathname.startsWith("/tellen");
+  const isGastApp = pathname.startsWith("/gast");
+  const isApiRoute = pathname.startsWith("/api");
 
-  if (user) {
+  if (user && !isRecoveryPage) {
     const { data: profile } = await supabase.from("profiles").select("active").eq("id", user.id).maybeSingle();
     if (profile?.active === false) {
       await supabase.auth.signOut();
@@ -34,12 +40,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  const isLoginPage = request.nextUrl.pathname.startsWith("/login");
-  const isTellerApp = request.nextUrl.pathname.startsWith("/tellen");
-  const isGastApp = request.nextUrl.pathname.startsWith("/gast");
-  const isApiRoute = request.nextUrl.pathname.startsWith("/api");
-
-  if (!user && !isLoginPage && !isTellerApp && !isGastApp && !isApiRoute) {
+  if (!user && !isLoginPage && !isRecoveryPage && !isTellerApp && !isGastApp && !isApiRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

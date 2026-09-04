@@ -1,11 +1,11 @@
-import { login } from "./actions";
+import { login, requestPincodeReset } from "./actions";
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; message?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, message } = await searchParams;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F7F7FB] px-4">
@@ -39,31 +39,31 @@ export default async function LoginPage({
               name="pin"
               type="password"
               required
+              inputMode="numeric"
               autoComplete="current-password"
               placeholder="••••••"
               className="w-full mt-1 rounded-lg border border-[#ECECF3] px-3 py-2 text-sm"
             />
           </div>
 
-          {error && (
-            <div className="text-sm text-[#B4231C] bg-[#FCEDEC] rounded-lg px-3 py-2">
-              {error}
-            </div>
-          )}
+          {error && <div className="text-sm text-[#B4231C] bg-[#FCEDEC] rounded-lg px-3 py-2">{error}</div>}
+          {message && <div className="text-sm text-[#176B4D] bg-[#E9F7F1] rounded-lg px-3 py-2">{message}</div>}
 
+          <button type="submit" className="w-full rounded-lg bg-[#6D5AE6] text-white text-sm font-semibold py-2.5">
+            Inloggen
+          </button>
           <button
             type="submit"
-            className="w-full rounded-lg bg-[#6D5AE6] text-white text-sm font-semibold py-2.5"
+            formAction={requestPincodeReset}
+            formNoValidate
+            className="w-full text-sm font-semibold text-[#6D5AE6] py-1"
           >
-            Inloggen
+            Pincode vergeten?
           </button>
         </form>
 
         <p className="text-center text-xs text-[#8A8FA8] mt-4">
           Geen toegang? Vraag de beheerder om je e-mailadres of gsm-nummer te activeren.
-        </p>
-        <p className="text-center text-[11px] text-[#A8ABBA] mt-2">
-          Een bestaand beheeraccount kan eerst nog het huidige wachtwoord gebruiken en daarna een pincode instellen.
         </p>
       </div>
     </div>
