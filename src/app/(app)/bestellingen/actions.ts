@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { logboekRegel } from "@/lib/logboek";
 
 export async function addLeverancier(naam: string, email: string, telefoon: string) {
   if (!naam.trim()) return;
@@ -54,6 +55,12 @@ export async function createBestelling(
       filtered.map((r) => ({ bestelling_id: bestelling.id, product_id: r.productId, besteld_aantal: r.aantal }))
     );
   }
+
+  const { data: gebouw } = await supabase.from("buildings").select("name").eq("id", buildingId).single();
+  await logboekRegel(supabase, "bestelling_aangemaakt", `Bestelling aangemaakt voor ${gebouw?.name || "?"} (${filtered.length} product(en))`, {
+    buildingId,
+  });
+
   revalidatePath("/bestellingen");
   revalidatePath("/voorraad");
   return bestelling.id as string;
@@ -80,12 +87,16 @@ export async function updateBestellingLeverancier(bestellingId: string, leveranc
 export async function markeerVerstuurd(bestellingId: string) {
   const supabase = await createClient();
   await supabase.from("bestellingen").update({ status: "verstuurd", verstuurd_op: new Date().toISOString() }).eq("id", bestellingId);
+  const { data: bestelling } = await supabase.from("bestellingen").select("building_id").eq("id", bestellingId).single();
+  await logboekRegel(supabase, "bestelling_verstuurd", "Bestelling gemarkeerd als verstuurd", { buildingId: bestelling?.building_id });
   revalidatePath("/bestellingen");
 }
 
 export async function annuleerBestelling(bestellingId: string) {
   const supabase = await createClient();
   await supabase.from("bestellingen").update({ status: "geannuleerd" }).eq("id", bestellingId);
+  const { data: bestelling } = await supabase.from("bestellingen").select("building_id").eq("id", bestellingId).single();
+  await logboekRegel(supabase, "bestelling_geannuleerd", "Bestelling geannuleerd", { buildingId: bestelling?.building_id });
   revalidatePath("/bestellingen");
 }
 
@@ -93,7 +104,8 @@ export async function bevestigLevering(
   bestellingId: string,
   buildingId: string,
   ontvangst: { productId: string; aantal: number }[],
-  wie: string
+  wie: string,
+  bewijsUrl?: string | null
 ) {
   const supabase = await createClient();
   const datum = new Date().toISOString().slice(0, 10);
@@ -106,6 +118,7 @@ export async function bevestigLevering(
       product_id: r.productId,
       aantal: r.aantal,
       wie: wie || null,
+      bewijs_url: bewijsUrl || null,
     });
 
     const { data: huidig } = await supabase
@@ -130,6 +143,14 @@ export async function bevestigLevering(
     .from("bestellingen")
     .update({ status: volledig ? "geleverd" : gedeeltelijk ? "deels_geleverd" : "verstuurd" })
     .eq("id", bestellingId);
+
+  const aantalOntvangen = teVerwerken.reduce((s, r) => s + r.aantal, 0);
+  await logboekRegel(
+    supabase,
+    "levering_bevestigd",
+    `Levering bevestigd: ${aantalOntvangen} stuk(s) over ${teVerwerken.length} product(en)${volledig ? " — volledig" : " — deels"}`,
+    { buildingId }
+  );
 
   revalidatePath("/bestellingen");
   revalidatePath("/voorraad");

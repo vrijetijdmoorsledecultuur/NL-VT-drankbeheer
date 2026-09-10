@@ -5,9 +5,14 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 // en enkel nadat je zelf hebt gecontroleerd dat de ingelogde gebruiker
 // systeembeheerder is (zie app/(app)/beheer/actions.ts).
 export function createAdminClient() {
+  const schema = process.env.NEXT_PUBLIC_SUPABASE_SCHEMA || "public";
+
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
+    {
+      db: { schema },
+      auth: { autoRefreshToken: false, persistSession: false },
+    }
   );
 }

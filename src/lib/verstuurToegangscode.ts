@@ -22,8 +22,7 @@ export async function verstuurToegangscodeMail(
   const activiteit = item.reservations?.activiteit || "";
 
   try {
-    const resend = getResend();
-    await resend.emails.send({
+    const { error: sendError } = await getResend().emails.send({
       from: AFZENDER,
       to: item.verstuur_email,
       subject: `Registreer jullie drankverbruik — ${gebouw}`,
@@ -35,6 +34,7 @@ export async function verstuurToegangscodeMail(
         <p>Bedankt!</p>
       `,
     });
+    if (sendError) return { ok: false, error: sendError.message || "Resend weigerde de verzending." };
     await supabase.from("reservation_toegangscodes").update({ verstuurd: true }).eq("id", item.id);
     return { ok: true };
   } catch (e) {

@@ -1,4 +1,17 @@
-import type { Reservation, Telling, VerbruikRegel, Product, Voorraadverplaatsing } from "./types";
+import type { Reservation, Telling, VerbruikRegel, Product, Voorraadverplaatsing, VoorraadControletelling, ProductPrijs } from "./types";
+
+/**
+ * Zoekt de prijs die op een bepaalde datum gold, op basis van de
+ * prijsgeschiedenis. Zonder geschiedenis (bv. een scherm dat ze niet meegeeft)
+ * valt dit terug op de huidige prijs van het product, zodat niets breekt.
+ */
+export function prijsOpDatum(product: Product, datum: string | null | undefined, prijzen: ProductPrijs[]): number {
+  if (!datum) return product.prijs;
+  const geschiedenis = prijzen
+    .filter((p) => p.product_id === product.id && p.geldig_vanaf <= datum)
+    .sort((a, b) => b.geldig_vanaf.localeCompare(a.geldig_vanaf));
+  return geschiedenis[0]?.prijs ?? product.prijs;
+}
 
 // Zoekt de nadien-telling van de meest recente andere reservatie in hetzelfde
 // gebouw, vóór deze reservatie, als vervangende vooraf-waarde wanneer er zelf
@@ -76,15 +89,17 @@ export function computeVerbruik(
 export function computeTotaal(
   perProduct: Record<string, number | null>,
   products: Product[],
-  boeteProductIds: string[]
+  boeteProductIds: string[],
+  datum?: string | null,
+  prijzen: ProductPrijs[] = []
 ): { drankTotaal: number; boetesTotaal: number; totaal: number } {
   const drankTotaal = products.reduce((sum, p) => {
     const q = perProduct[p.id];
-    return q != null ? sum + q * p.prijs : sum;
+    return q != null ? sum + q * prijsOpDatum(p, datum, prijzen) : sum;
   }, 0);
   const boetesTotaal = products
     .filter((p) => boeteProductIds.includes(p.id))
-    .reduce((sum, p) => sum + p.prijs, 0);
+    .reduce((sum, p) => sum + prijsOpDatum(p, datum, prijzen), 0);
   return { drankTotaal, boetesTotaal, totaal: drankTotaal + boetesTotaal };
 }
 
@@ -108,7 +123,8 @@ export function computeVoorraad(
   tellingen: Telling[],
   leveringen: VerbruikRegel[],
   eigenVerbruik: VerbruikRegel[],
-  verplaatsingen: Voorraadverplaatsing[]
+  verplaatsingen: Voorraadverplaatsing[],
+  controletellingen: VoorraadControletelling[] = []
 ): Record<string, VoorraadResultaat> {
   const result: Record<string, VoorraadResultaat> = {};
   const buildingReservations = reservations.filter((r) => r.building_id === buildingId);
@@ -133,6 +149,17 @@ export function computeVoorraad(
       if (baselineDatum === null || (r.begin_datum || "") > baselineDatum) {
         baselineDatum = r.begin_datum;
         baselineStuks = t.nadien;
+      }
+    }
+
+    // Een goedgekeurde controletelling is een even geldig — vaak recenter —
+    // ijkpunt dan de laatste reservatie-telling: neem de meest recente van
+    // de twee.
+    for (const c of controletellingen) {
+      if (c.building_id !== buildingId || c.product_id !== p.id) continue;
+      if (baselineDatum === null || c.datum > baselineDatum) {
+        baselineDatum = c.datum;
+        baselineStuks = c.aantal;
       }
     }
 

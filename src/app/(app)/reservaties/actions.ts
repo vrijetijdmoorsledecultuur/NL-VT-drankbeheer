@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { parseReservationsPdf, matchBuilding, type ParsedReservation } from "@/lib/pdfParser";
+import { logboekRegel } from "@/lib/logboek";
 
 export type ExtractResult = {
   ok: boolean;
@@ -110,15 +111,27 @@ export async function saveReservations(items: ReservationInput[]) {
     status: "wacht" as const,
   }));
 
-  const { error } = await supabase.from("reservations").insert(rows);
+  const { data: inserted, error } = await supabase.from("reservations").insert(rows).select("id");
   if (error) return { ok: false, error: error.message };
 
+  if (rows.length === 1 && rows[0].bron === "manueel") {
+    await logboekRegel(supabase, "reservatie_manueel_aangemaakt", `Snelle verhuring geboekt: ${rows[0].huurder}`, {
+      buildingId: rows[0].building_id,
+    });
+  }
+
   revalidatePath("/reservaties");
-  return { ok: true };
+  return { ok: true, id: inserted?.[0]?.id as string | undefined };
 }
 
 export async function deleteReservation(id: string) {
   const supabase = await createClient();
+  const { data: reservation } = await supabase.from("reservations").select("huurder, building_id").eq("id", id).single();
   await supabase.from("reservations").delete().eq("id", id);
+  if (reservation) {
+    await logboekRegel(supabase, "reservatie_verwijderd", `Reservatie verwijderd: ${reservation.huurder}`, {
+      buildingId: reservation.building_id,
+    });
+  }
   revalidatePath("/reservaties");
 }

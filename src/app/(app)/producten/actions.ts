@@ -24,6 +24,38 @@ export async function updateProductField(
 ) {
   const supabase = await createClient();
   await supabase.from("products").update({ [field]: value }).eq("id", id);
+
+  // Een prijswijziging via dit snelle veld geldt vanaf vandaag — bewaar ze
+  // meteen ook in de geschiedenis, zodat oudere reservaties/facturen straks
+  // niet per ongeluk dit nieuwe bedrag overnemen.
+  if (field === "prijs") {
+    const datum = new Date().toISOString().slice(0, 10);
+    await supabase.from("product_prijzen").insert({ product_id: id, prijs: value as number, geldig_vanaf: datum });
+  }
+
+  revalidatePath("/producten");
+}
+
+export async function plantPrijswijziging(productId: string, prijs: number, geldigVanaf: string) {
+  const supabase = await createClient();
+  const vandaag = new Date().toISOString().slice(0, 10);
+
+  await supabase.from("product_prijzen").insert({ product_id: productId, prijs, geldig_vanaf: geldigVanaf });
+
+  // Is de nieuwe prijs vandaag al van toepassing (of in het verleden), werk
+  // dan meteen ook het "huidige prijs"-veld bij dat elders in de app als
+  // snelle weergave gebruikt wordt.
+  if (geldigVanaf <= vandaag) {
+    await supabase.from("products").update({ prijs }).eq("id", productId);
+  }
+
+  revalidatePath("/producten");
+  revalidatePath("/verwerking");
+}
+
+export async function verwijderPrijsRegel(id: string) {
+  const supabase = await createClient();
+  await supabase.from("product_prijzen").delete().eq("id", id);
   revalidatePath("/producten");
 }
 

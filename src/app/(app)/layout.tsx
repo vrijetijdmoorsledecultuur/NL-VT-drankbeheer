@@ -14,17 +14,31 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, email, phone, full_name, role, active")
+    .select("id, email, full_name, role, logboek_laatst_bekeken")
     .eq("id", user.id)
-    .single<Profile>();
+    .single<Profile & { logboek_laatst_bekeken: string | null }>();
 
   const role = profile?.role ?? "administratie";
   const displayName = weergavenaam(profile?.full_name, profile?.email || user.email);
 
+  let logboekOngelezen = 0;
+  let controleOngelezen = 0;
+  if (role !== "theatertechnieker") {
+    let query = supabase.from("logboek").select("id", { count: "exact", head: true });
+    if (profile?.logboek_laatst_bekeken) query = query.gt("created_at", profile.logboek_laatst_bekeken);
+    const [{ count: logboekCount }, { count: tellingenCount }, { count: facturenCount }] = await Promise.all([
+      query,
+      supabase.from("ruwe_tellingen").select("id", { count: "exact", head: true }).eq("status", "open"),
+      supabase.from("facturen").select("id", { count: "exact", head: true }).eq("status", "open"),
+    ]);
+    logboekOngelezen = logboekCount ?? 0;
+    controleOngelezen = (tellingenCount ?? 0) + (facturenCount ?? 0);
+  }
+
   return (
     <div className="flex h-screen bg-[#F7F7FB]">
       <div className="print:hidden">
-        <Sidebar role={role} />
+        <Sidebar role={role} logboekOngelezen={logboekOngelezen} controleOngelezen={controleOngelezen} />
       </div>
       <div className="flex-1 flex flex-col min-w-0">
         <div className="bg-white border-b border-[#ECECF3] px-4 md:px-8 py-3 flex items-center justify-between gap-3 print:hidden">

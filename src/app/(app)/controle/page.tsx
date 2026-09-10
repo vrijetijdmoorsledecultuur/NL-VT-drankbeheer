@@ -19,7 +19,8 @@ import type {
 import ControleApp from "@/components/controle/ControleApp";
 import { hasPincode } from "@/app/(app)/instellingen/actions";
 
-export default async function ControlePage() {
+export default async function ControlePage({ searchParams }: { searchParams: Promise<{ reservationId?: string }> }) {
+  const { reservationId } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -56,7 +57,7 @@ export default async function ControlePage() {
       .limit(500),
     supabase.from("products").select("id, name, prijs, categorie, verpakking, actief, afrekenmodus").eq("actief", true).order("categorie").order("name"),
     supabase.from("product_buildings").select("product_id, building_id"),
-    supabase.from("reservation_product_tellingen").select("reservation_id, product_id, vooraf, nadien"),
+    supabase.from("reservation_product_tellingen").select("reservation_id, product_id, vooraf, nadien, vooraf_frigo, vooraf_bakken, vooraf_los, nadien_frigo, nadien_bakken, nadien_los"),
     supabase.from("leveringen").select("id, reservation_id, building_id, datum, product_id, aantal, wie"),
     supabase.from("eigen_verbruik").select("id, reservation_id, building_id, datum, product_id, aantal, wie"),
     supabase.from("reservation_boetes").select("reservation_id, product_id, bewijs_url"),
@@ -108,6 +109,7 @@ export default async function ControlePage() {
       facturen={(facturen as Factuur[]) || []}
       factuurRegels={(factuurRegels as FactuurRegel[]) || []}
       canEdit={canEdit}
+      initialReservationId={reservationId}
       heeftPincode={heeftPincode}
     />
   );

@@ -3,7 +3,8 @@ import type { Profile } from "@/lib/types";
 import { getGebouwen } from "@/app/tellen/[token]/actions";
 import TellerApp from "@/components/TellerApp";
 
-export default async function IngelogdTellenPage() {
+export default async function IngelogdTellenPage({ searchParams }: { searchParams: Promise<{ type?: string }> }) {
+  const { type } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -29,7 +30,12 @@ export default async function IngelogdTellenPage() {
 
   return (
     <div className="-m-4 md:-m-8">
-      <TellerApp token={token} gebouwen={gebouwen} defaultNaam={defaultNaam} />
+      <TellerApp
+        token={token}
+        gebouwen={gebouwen}
+        defaultNaam={defaultNaam}
+        initialType={type === "vooraf" || type === "nadien" || type === "controle" ? type : undefined}
+      />
     </div>
   );
 }

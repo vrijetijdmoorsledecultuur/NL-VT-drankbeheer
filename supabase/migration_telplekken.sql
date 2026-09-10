@@ -550,6 +550,222 @@ $$;
 grant execute on function submit_gast_telling(text, text, jsonb) to anon;
 
 -- ============================================================================
+-- AANVULLING: centraal logboek — wie deed wat, wanneer. Belangrijk nu er
+-- meerdere medewerkers tegelijk in de app actief zijn.
+-- ============================================================================
+create table if not exists logboek (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  gebruiker_naam text,
+  actie text not null,
+  omschrijving text not null,
+  building_id uuid references buildings (id) on delete set null,
+  reservation_id uuid references reservations (id) on delete set null
+);
+alter table logboek enable row level security;
+drop policy if exists "logboek_select" on logboek;
+create policy "logboek_select" on logboek for select using (auth.role() = 'authenticated');
+drop policy if exists "logboek_insert" on logboek;
+create policy "logboek_insert" on logboek for insert with check (auth.role() = 'authenticated');
+
+-- Wanneer een gebruiker het logboek laatst bekeek, voor de "nieuw"-teller.
+alter table profiles add column if not exists logboek_laatst_bekeken timestamptz;
+
+-- ============================================================================
+-- AANVULLING: eenvoudige factuur/creditnota (bv. één koffiepad voor een
+-- kleine bijeenkomst), zonder dat daar een volledige reservatie voor nodig is.
+-- ============================================================================
+create table if not exists facturen (
+  id uuid primary key default gen_random_uuid(),
+  building_id uuid not null references buildings (id) on delete cascade,
+  naam text not null,
+  type text not null check (type in ('factuur', 'creditnota')),
+  datum date not null default current_date,
+  bedrag numeric not null default 0,
+  wie text,
+  created_at timestamptz not null default now()
+);
+create table if not exists factuur_regels (
+  factuur_id uuid not null references facturen (id) on delete cascade,
+  product_id uuid not null references products (id) on delete cascade,
+  aantal integer not null default 0,
+  prijs numeric not null default 0,
+  primary key (factuur_id, product_id)
+);
+alter table facturen enable row level security;
+drop policy if exists "facturen_select" on facturen;
+create policy "facturen_select" on facturen for select using (auth.role() = 'authenticated');
+drop policy if exists "facturen_write" on facturen;
+create policy "facturen_write" on facturen for all
+  using (can_edit_reservations()) with check (can_edit_reservations());
+
+alter table factuur_regels enable row level security;
+drop policy if exists "factuur_regels_select" on factuur_regels;
+create policy "factuur_regels_select" on factuur_regels for select using (auth.role() = 'authenticated');
+drop policy if exists "factuur_regels_write" on factuur_regels;
+create policy "factuur_regels_write" on factuur_regels for all
+  using (can_edit_reservations()) with check (can_edit_reservations());
+
+-- ============================================================================
+-- AANVULLING: Recreatex-status. Zodra een reservatie gecontroleerd is, moet
+-- het bedrag manueel overgenomen worden in Recreatex door administratie. Dit
+-- houdt bij (en toont aan alle medewerkers) of dat al gebeurd is — nog geen
+-- echte API-koppeling, wel volledige zichtbaarheid ondertussen.
+-- ============================================================================
+alter table reservations add column if not exists recreatex_verwerkt boolean not null default false;
+alter table reservations add column if not exists recreatex_verwerkt_door text;
+alter table reservations add column if not exists recreatex_verwerkt_op timestamptz;
+
+-- ============================================================================
+-- AANVULLING: controletelling — een telling die niet aan een reservatie hangt,
+-- puur om de fysieke voorraad te verifiëren wanneer dat nodig is. Gebruikt
+-- dezelfde wachtrij/goedkeuringsflow als andere tellingen, maar reservatie_id
+-- mag nu leeg blijven, en het resultaat wordt bij goedkeuring een nieuw
+-- ijkpunt voor de live-voorraadberekening.
+-- ============================================================================
+alter table ruwe_tellingen alter column reservation_id drop not null;
+alter table ruwe_tellingen drop constraint if exists ruwe_tellingen_type_check;
+alter table ruwe_tellingen add constraint ruwe_tellingen_type_check check (type in ('vooraf', 'nadien', 'controle'));
+
+create table if not exists voorraad_controletellingen (
+  id uuid primary key default gen_random_uuid(),
+  building_id uuid not null references buildings (id) on delete cascade,
+  product_id uuid not null references products (id) on delete cascade,
+  aantal integer not null,
+  datum date not null default current_date,
+  created_at timestamptz not null default now()
+);
+alter table voorraad_controletellingen enable row level security;
+drop policy if exists "voorraad_controletellingen_select" on voorraad_controletellingen;
+create policy "voorraad_controletellingen_select" on voorraad_controletellingen for select using (auth.role() = 'authenticated');
+drop policy if exists "voorraad_controletellingen_write" on voorraad_controletellingen;
+create policy "voorraad_controletellingen_write" on voorraad_controletellingen for all
+  using (can_edit_reservations()) with check (can_edit_reservations());
+
+-- submit_ruwe_telling: reservatie is nu optioneel.
+drop function if exists submit_ruwe_telling(text, uuid, uuid, uuid, text, text, jsonb, boolean, boolean);
+create or replace function submit_ruwe_telling(
+  p_token text,
+  p_building_id uuid,
+  p_telplek_id uuid,
+  p_reservation_id uuid,
+  p_type text,
+  p_ingevoerd_door text,
+  p_regels jsonb,
+  p_afwijking_bevestigd boolean default false,
+  p_vaste_voorraad_bevestigd boolean default false
+)
+returns uuid
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_telling_id uuid;
+  v_regel jsonb;
+begin
+  if not exists (select 1 from teller_instellingen where token = p_token) then
+    raise exception 'Ongeldige of verlopen link.';
+  end if;
+
+  if p_type not in ('vooraf', 'nadien', 'controle') then
+    raise exception 'Ongeldig type telling.';
+  end if;
+
+  if p_type in ('vooraf', 'nadien') and p_reservation_id is null then
+    raise exception 'Kies een reservatie voor vooraf/nadien.';
+  end if;
+
+  insert into ruwe_tellingen
+    (building_id, reservation_id, type, ingevoerd_door, afwijking_bevestigd, telplek_id, vaste_voorraad_bevestigd)
+  values
+    (p_building_id, p_reservation_id, p_type, nullif(trim(p_ingevoerd_door), ''), p_afwijking_bevestigd, p_telplek_id, p_vaste_voorraad_bevestigd)
+  returning id into v_telling_id;
+
+  for v_regel in select * from jsonb_array_elements(p_regels)
+  loop
+    insert into ruwe_telling_regels (ruwe_telling_id, product_id, aantal)
+    values (v_telling_id, (v_regel ->> 'product_id')::uuid, coalesce((v_regel ->> 'aantal')::int, 0));
+  end loop;
+
+  return v_telling_id;
+end;
+$$;
+grant execute on function submit_ruwe_telling(text, uuid, uuid, uuid, text, text, jsonb, boolean, boolean) to anon;
+grant execute on function submit_ruwe_telling(text, uuid, uuid, uuid, text, text, jsonb, boolean, boolean) to authenticated;
+-- contact ooit een nette naam kreeg (bv. "Bloedgevers" i.p.v. "BLOEDGEVERS"),
+-- maar waarbij die wijziging toen nog niet werd doorgeschreven naar de
+-- reservatie zelf. Vanaf nu gebeurt dat automatisch bij elke contactwijziging.
+-- ============================================================================
+update reservations r
+set huurder = c.vereniging
+from contacts c
+where r.contact_id = c.id
+  and c.vereniging is not null
+  and c.vereniging <> ''
+  and r.huurder <> c.vereniging;
+
+-- ============================================================================
+-- AANVULLING: prijsgeschiedenis. Een prijswijziging (bv. op 1 september) mag
+-- oude, al afgehandelde reservaties en facturen nooit met terugwerkende
+-- kracht een ander bedrag geven — elke berekening gebruikt voortaan de prijs
+-- die gold op de datum van de activiteit/registratie zelf.
+-- ============================================================================
+create table if not exists product_prijzen (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references products (id) on delete cascade,
+  prijs numeric not null,
+  geldig_vanaf date not null default current_date,
+  created_at timestamptz not null default now()
+);
+alter table product_prijzen enable row level security;
+drop policy if exists "product_prijzen_select" on product_prijzen;
+create policy "product_prijzen_select" on product_prijzen for select using (auth.role() = 'authenticated');
+drop policy if exists "product_prijzen_write" on product_prijzen;
+create policy "product_prijzen_write" on product_prijzen for all
+  using (can_edit_masterdata()) with check (can_edit_masterdata());
+
+-- Zet de huidige prijs van elk product om in een eerste, "altijd geldige"
+-- historische regel (vanaf lang geleden), zodat oudere reservaties nog een
+-- prijs vinden om mee te rekenen.
+insert into product_prijzen (product_id, prijs, geldig_vanaf)
+select p.id, p.prijs, '2020-01-01'::date
+from products p
+where not exists (select 1 from product_prijzen pp where pp.product_id = p.id);
+
+-- ============================================================================
+-- AANVULLING: boetes moeten gestaafd worden met bewijsmateriaal (foto), en
+-- facturen krijgen dezelfde Recreatex-status als reservaties.
+-- ============================================================================
+alter table reservation_boetes add column if not exists bewijs_url text;
+
+insert into storage.buckets (id, name, public)
+values ('boete-bewijs', 'boete-bewijs', true)
+on conflict (id) do nothing;
+
+drop policy if exists "boete_bewijs_select" on storage.objects;
+create policy "boete_bewijs_select" on storage.objects for select
+  using (bucket_id = 'boete-bewijs');
+drop policy if exists "boete_bewijs_insert" on storage.objects;
+create policy "boete_bewijs_insert" on storage.objects for insert
+  with check (bucket_id = 'boete-bewijs' and auth.role() = 'authenticated');
+drop policy if exists "boete_bewijs_delete" on storage.objects;
+create policy "boete_bewijs_delete" on storage.objects for delete
+  using (bucket_id = 'boete-bewijs' and auth.role() = 'authenticated');
+
+alter table facturen add column if not exists recreatex_verwerkt boolean not null default false;
+alter table facturen add column if not exists recreatex_verwerkt_door text;
+alter table facturen add column if not exists recreatex_verwerkt_op timestamptz;
+
+-- ============================================================================
+-- AANVULLING: facturen/creditnota's krijgen een goedkeuringsstap, net als
+-- tellingen. Pas na goedkeuring is een PDF beschikbaar als basis voor
+-- handmatige invoer in Recreatex.
+-- ============================================================================
+alter table facturen add column if not exists status text not null default 'open' check (status in ('open', 'goedgekeurd'));
+alter table facturen add column if not exists goedgekeurd_door text;
+alter table facturen add column if not exists goedgekeurd_op timestamptz;
+
+-- ============================================================================
 -- AANVULLING: pincode ter bevestiging van gevoelige acties (niet als login,
 -- enkel als extra check vlak vóór iets onomkeerbaars — verwijderen, goedkeuren).
 -- Hergebruikt de bestaande policy "profiles_update_own_name" (elke gebruiker

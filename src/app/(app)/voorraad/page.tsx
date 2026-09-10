@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Building, Product, Reservation, Telling, VerbruikRegel, Voorraadverplaatsing, Profile } from "@/lib/types";
+import type { Building, Product, Reservation, Telling, VerbruikRegel, Voorraadverplaatsing, VoorraadControletelling, Profile } from "@/lib/types";
 import VoorraadView from "@/components/VoorraadView";
 
 export default async function VoorraadPage() {
@@ -21,6 +21,7 @@ export default async function VoorraadPage() {
     { data: leveringen },
     { data: eigenVerbruik },
     { data: verplaatsingen },
+    { data: controletellingen },
   ] = await Promise.all([
     supabase.from("buildings").select("id, name, actief").eq("actief", true).order("name"),
     supabase.from("products").select("id, name, prijs, categorie, verpakking, actief, afrekenmodus").eq("actief", true).eq("afrekenmodus", "standaard").order("categorie").order("name"),
@@ -30,6 +31,7 @@ export default async function VoorraadPage() {
     supabase.from("leveringen").select("id, reservation_id, building_id, datum, product_id, aantal, wie"),
     supabase.from("eigen_verbruik").select("id, reservation_id, building_id, datum, product_id, aantal, wie"),
     supabase.from("voorraadverplaatsingen").select("id, product_id, van_building_id, naar_building_id, aantal, datum, reden, wie"),
+    supabase.from("voorraad_controletellingen").select("id, building_id, product_id, aantal, datum, created_at"),
   ]);
 
   const canEdit = profile?.role === "systeembeheerder" || profile?.role === "administratie" || profile?.role === "gebouwbeheerder";
@@ -53,6 +55,7 @@ export default async function VoorraadPage() {
       leveringen={(leveringen as VerbruikRegel[]) || []}
       eigenVerbruik={(eigenVerbruik as VerbruikRegel[]) || []}
       verplaatsingen={(verplaatsingen as Voorraadverplaatsing[]) || []}
+      controletellingen={(controletellingen as VoorraadControletelling[]) || []}
       canEdit={canEdit}
       defaultNaam={defaultNaam}
     />

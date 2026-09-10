@@ -70,8 +70,8 @@ export async function submitTelling(
   input: {
     buildingId: string;
     telplekId: string;
-    reservationId: string;
-    type: "vooraf" | "nadien";
+    reservationId: string | null;
+    type: "vooraf" | "nadien" | "controle";
     ingevoerdDoor: string;
     regels: { productId: string; aantal: number }[];
     afwijkingBevestigd: boolean;

@@ -17,18 +17,20 @@ import {
   type TellerReservation,
 } from "@/app/tellen/[token]/actions";
 
-type Step = "gebouw" | "telplek" | "vaste_voorraad" | "reservatie" | "tellen" | "klaar";
+type Step = "moment" | "gebouw" | "telplek" | "vaste_voorraad" | "reservatie" | "tellen" | "klaar";
 
 export default function TellerApp({
   token,
   gebouwen,
   defaultNaam = "",
+  initialType,
 }: {
   token: string;
   gebouwen: TellerGebouw[];
   defaultNaam?: string;
+  initialType?: "vooraf" | "nadien" | "controle";
 }) {
-  const [step, setStep] = useState<Step>(gebouwen.length === 1 ? "telplek" : "gebouw");
+  const [step, setStep] = useState<Step>(initialType ? (gebouwen.length === 1 ? "telplek" : "gebouw") : "moment");
   const [gebouw, setGebouw] = useState<TellerGebouw | null>(gebouwen.length === 1 ? gebouwen[0] : null);
 
   const [telplekken, setTelplekken] = useState<TellerTelplek[]>([]);
@@ -40,7 +42,14 @@ export default function TellerApp({
 
   const [reservations, setReservations] = useState<TellerReservation[]>([]);
   const [reservationId, setReservationId] = useState("");
-  const [type, setType] = useState<"vooraf" | "nadien">("vooraf");
+  const [type, setType] = useState<"vooraf" | "nadien" | "controle">(initialType || "vooraf");
+  useEffect(() => {
+    if (initialType) {
+      setType(initialType);
+      setStep(gebouwen.length === 1 ? "telplek" : "gebouw");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialType]);
   const [naam, setNaam] = useState(defaultNaam);
 
   const [products, setProducts] = useState<TellerProduct[]>([]);
@@ -135,7 +144,7 @@ export default function TellerApp({
   }
 
   async function handleSubmit() {
-    if (!reservationId) {
+    if (type !== "controle" && !reservationId) {
       setError("Kies eerst een reservatie.");
       return;
     }
@@ -152,7 +161,7 @@ export default function TellerApp({
     const res = await submitTelling(token, {
       buildingId: gebouw!.id,
       telplekId: telplek!.id,
-      reservationId,
+      reservationId: type === "controle" ? null : reservationId,
       type,
       ingevoerdDoor: naam,
       regels,
@@ -206,11 +215,66 @@ export default function TellerApp({
     );
   }
 
+  if (step === "moment") {
+    return (
+      <div className="min-h-screen bg-[#F7F7FB]">
+        {header}
+        <div className="p-4 max-w-lg mx-auto">
+          <div className="text-sm font-semibold text-[#8A8FA8] mb-3">Wat wil je doen?</div>
+          <div className="space-y-2">
+            <button
+              onClick={() => {
+                setType("vooraf");
+                setStep(gebouwen.length === 1 ? "telplek" : "gebouw");
+              }}
+              className="w-full text-left bg-white rounded-2xl border border-[#ECECF3] px-5 py-4 hover:border-[#D8D3F7] flex items-center justify-between"
+            >
+              <div>
+                <div className="font-bold text-[#171A2B]">Telling VOORAF</div>
+                <div className="text-xs text-[#8A8FA8] mt-0.5">Voor het begin van een activiteit, per reservatie.</div>
+              </div>
+              <ChevronRight size={16} className="text-[#C7CAE0]" />
+            </button>
+            <button
+              onClick={() => {
+                setType("nadien");
+                setStep(gebouwen.length === 1 ? "telplek" : "gebouw");
+              }}
+              className="w-full text-left bg-white rounded-2xl border border-[#ECECF3] px-5 py-4 hover:border-[#D8D3F7] flex items-center justify-between"
+            >
+              <div>
+                <div className="font-bold text-[#171A2B]">Telling ACHTERAF</div>
+                <div className="text-xs text-[#8A8FA8] mt-0.5">Na afloop van een activiteit, per reservatie.</div>
+              </div>
+              <ChevronRight size={16} className="text-[#C7CAE0]" />
+            </button>
+            <button
+              onClick={() => {
+                setType("controle");
+                setStep(gebouwen.length === 1 ? "telplek" : "gebouw");
+              }}
+              className="w-full text-left bg-white rounded-2xl border border-[#ECECF3] px-5 py-4 hover:border-[#D8D3F7] flex items-center justify-between"
+            >
+              <div>
+                <div className="font-bold text-[#171A2B]">CONTROLETELLING</div>
+                <div className="text-xs text-[#8A8FA8] mt-0.5">Los van een reservatie, gewoon de fysieke voorraad checken.</div>
+              </div>
+              <ChevronRight size={16} className="text-[#C7CAE0]" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (step === "gebouw") {
     return (
       <div className="min-h-screen bg-[#F7F7FB]">
         {header}
         <div className="p-4 max-w-lg mx-auto space-y-2">
+          <button onClick={() => setStep("moment")} className="text-sm text-[#6D5AE6] font-semibold flex items-center gap-1 mb-1">
+            <ChevronLeft size={14} /> Terug
+          </button>
           {gebouwen.map((g) => (
             <button
               key={g.id}
@@ -330,35 +394,32 @@ export default function TellerApp({
             <ChevronLeft size={14} /> Terug
           </button>
           <div className="bg-white rounded-2xl border border-[#ECECF3] p-4">
-            <label className="text-xs font-semibold text-[#8A8FA8] uppercase tracking-wide">Reservatie</label>
-            <select
-              value={reservationId}
-              onChange={(e) => setReservationId(e.target.value)}
-              className="w-full mt-2 rounded-lg border border-[#ECECF3] px-3 py-2.5 text-sm"
-            >
-              <option value="">Kies een reservatie&hellip;</option>
-              {reservations.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {formatDate(r.begin_datum)} &middot; {r.huurder}
-                  {r.ruimte ? ` (${r.ruimte})` : ""}
-                </option>
-              ))}
-            </select>
-
-            <label className="text-xs font-semibold text-[#8A8FA8] uppercase tracking-wide mt-4 block">Moment</label>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {(["vooraf", "nadien"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setType(t)}
-                  className={`py-2.5 rounded-lg text-sm font-semibold border ${
-                    type === t ? "bg-[#6D5AE6] text-white border-[#6D5AE6]" : "bg-white text-[#171A2B] border-[#ECECF3]"
-                  }`}
-                >
-                  {t === "vooraf" ? "Vooraf" : "Nadien"}
-                </button>
-              ))}
+            <div className="text-xs font-semibold text-[#6D5AE6] uppercase tracking-wide mb-3">
+              {type === "vooraf" ? "Telling vooraf" : type === "nadien" ? "Telling achteraf" : "Controletelling"}
             </div>
+
+            {type === "controle" ? (
+              <p className="text-[11px] text-[#8A8FA8]">
+                Een controletelling verifieert de fysieke voorraad, los van een specifieke reservatie.
+              </p>
+            ) : (
+              <>
+                <label className="text-xs font-semibold text-[#8A8FA8] uppercase tracking-wide block">Reservatie</label>
+                <select
+                  value={reservationId}
+                  onChange={(e) => setReservationId(e.target.value)}
+                  className="w-full mt-2 rounded-lg border border-[#ECECF3] px-3 py-2.5 text-sm"
+                >
+                  <option value="">Kies een reservatie&hellip;</option>
+                  {reservations.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {formatDate(r.begin_datum)} &middot; {r.huurder}
+                      {r.ruimte ? ` (${r.ruimte})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
             <label className="text-xs font-semibold text-[#8A8FA8] uppercase tracking-wide mt-4 block">
               Jouw naam (optioneel)
@@ -371,8 +432,8 @@ export default function TellerApp({
             />
 
             <button
-              onClick={() => reservationId && setStep("tellen")}
-              disabled={!reservationId}
+              onClick={() => (type === "controle" || reservationId) && setStep("tellen")}
+              disabled={type !== "controle" && !reservationId}
               className="w-full mt-5 py-2.5 rounded-lg bg-[#6D5AE6] text-white text-sm font-semibold disabled:opacity-50"
             >
               Verder naar tellen

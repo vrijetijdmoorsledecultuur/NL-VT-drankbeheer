@@ -159,11 +159,45 @@ export default function ContactenList({
 }) {
   const [letter, setLetter] = useState<string | null>(null);
 
-  const availableLetters = useMemo(() => new Set(contacts.map((c) => displayLetter(c))), [contacts]);
-  const filtered = letter ? contacts.filter((c) => displayLetter(c) === letter) : contacts;
+  // Onbewerkte contacten (nog geen vereniging toegekend) horen niet thuis in
+  // de A-Z-index — hun naam is nog de ruwe PDF-tekst, geen echte alfabetische
+  // plek. Ze staan apart, bovenaan, tot ze bewerkt worden; dan "vliegen" ze
+  // vanzelf naar hun correcte letter hieronder.
+  const onbewerkt = useMemo(() => contacts.filter((c) => !c.vereniging), [contacts]);
+  const bewerkt = useMemo(() => contacts.filter((c) => !!c.vereniging), [contacts]);
+
+  const availableLetters = useMemo(() => new Set(bewerkt.map((c) => displayLetter(c))), [bewerkt]);
+  const filtered = letter ? bewerkt.filter((c) => displayLetter(c) === letter) : bewerkt;
+
+  if (contacts.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-[#ECECF3] px-5 py-6 text-sm text-[#B0B4CC]">
+        Nog geen contacten &mdash; die worden automatisch aangemaakt bij het inlezen van reservatie-PDF&apos;s.
+      </div>
+    );
+  }
 
   return (
     <div>
+      {onbewerkt.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm font-semibold text-[#171A2B]">Te verwerken</span>
+            <span className="text-[10px] font-semibold bg-[#FDF0DA] text-[#B4741A] rounded-full px-2 py-0.5">
+              {onbewerkt.length}
+            </span>
+          </div>
+          <p className="text-xs text-[#8A8FA8] mb-3">
+            Nog geen vereniging toegekend — staat hier los van het alfabet tot je de naam bevestigt of aanpast.
+          </p>
+          <div className="grid md:grid-cols-2 gap-4">
+            {onbewerkt.map((c) => (
+              <ContactCard key={c.id} contact={c} canEdit={canEdit} heeftPincode={heeftPincode} />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-1.5 mb-5">
         <button
           onClick={() => setLetter(null)}
@@ -192,7 +226,9 @@ export default function ContactenList({
 
       {filtered.length === 0 ? (
         <div className="bg-white rounded-2xl border border-[#ECECF3] px-5 py-6 text-sm text-[#B0B4CC]">
-          Nog geen contacten &mdash; die worden automatisch aangemaakt bij het inlezen van reservatie-PDF&apos;s.
+          {bewerkt.length === 0
+            ? "Nog geen verwerkte contacten. Ken hierboven een vereniging toe, dan verschijnen ze hier alfabetisch."
+            : "Geen contacten voor deze letter."}
         </div>
       ) : (
         <div className="grid md:grid-cols-2 gap-4">

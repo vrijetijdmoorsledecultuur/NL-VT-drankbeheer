@@ -6,6 +6,7 @@ import { ChevronRight, Plus, Minus, Copy, Check, Truck, X, Package, Users } from
 import type { Building, Product, Leverancier, Bestelling, BestellingRegel, BestellingStatus } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import LeveranciersBeheer from "@/components/LeveranciersBeheer";
+import { uploadZendnotaBewijs } from "@/lib/uploadZendnotaBewijs";
 import {
   createBestelling,
   updateBestellingRegel,
@@ -310,6 +311,8 @@ function BestellingDetail({
   const [ontvangst, setOntvangst] = useState<Record<string, number>>({});
   const [wie, setWie] = useState(defaultNaam);
   const [bevestigOpen, setBevestigOpen] = useState(false);
+  const [zendnotaUrl, setZendnotaUrl] = useState<string | null>(null);
+  const [zendnotaBezig, setZendnotaBezig] = useState(false);
 
   const gebouw = buildings.find((b) => b.id === bestelling.building_id);
   const isConcept = bestelling.status === "concept";
@@ -340,7 +343,23 @@ function BestellingDetail({
     const init: Record<string, number> = {};
     for (const r of regels) init[r.product_id] = Math.max(0, r.besteld_aantal - r.geleverd_aantal);
     setOntvangst(init);
+    setZendnotaUrl(null);
     setBevestigOpen(true);
+  }
+
+  function handleZendnotaBestand(file: File | null) {
+    if (!file) return;
+    setZendnotaBezig(true);
+    startTransition(async () => {
+      try {
+        const url = await uploadZendnotaBewijs(file, bestelling.id);
+        setZendnotaUrl(url);
+      } catch {
+        // stilzwijgend negeren — de zendnota is optioneel, dit mag de bevestiging niet blokkeren
+      } finally {
+        setZendnotaBezig(false);
+      }
+    });
   }
 
   function submitLevering() {
@@ -349,7 +368,7 @@ function BestellingDetail({
       .map(([productId, aantal]) => ({ productId, aantal }));
     if (lijst.length === 0) return;
     startTransition(async () => {
-      await bevestigLevering(bestelling.id, bestelling.building_id, lijst, wie);
+      await bevestigLevering(bestelling.id, bestelling.building_id, lijst, wie, zendnotaUrl);
       setBevestigOpen(false);
       onChanged();
     });
@@ -502,10 +521,37 @@ function BestellingDetail({
             onChange={(e) => setWie(e.target.value)}
             className="w-full mt-1.5 mb-4 rounded-lg border border-[#ECECF3] px-3 py-2 text-sm"
           />
+
+          <label className="text-xs font-semibold text-[#8A8FA8] uppercase tracking-wide">Zendnota (optioneel)</label>
+          <div className="mt-1.5 mb-4">
+            {zendnotaBezig ? (
+              <div className="text-xs text-[#8A8FA8]">Bezig met uploaden&hellip;</div>
+            ) : zendnotaUrl ? (
+              <div className="flex items-center gap-2 text-xs">
+                <a href={zendnotaUrl} target="_blank" rel="noopener noreferrer" className="text-[#6D5AE6] font-semibold underline">
+                  Bekijk geüploade zendnota
+                </a>
+                <button onClick={() => setZendnotaUrl(null)} className="text-[#B0B4CC]">
+                  wijzigen
+                </button>
+              </div>
+            ) : (
+              <label className="text-xs text-[#6D5AE6] font-semibold cursor-pointer inline-block px-3 py-2 rounded-lg border border-[#ECECF3]">
+                + Foto/PDF van de zendnota toevoegen
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={(e) => handleZendnotaBestand(e.target.files?.[0] || null)}
+                />
+              </label>
+            )}
+          </div>
+
           <div className="flex gap-2">
             <button
               onClick={submitLevering}
-              disabled={pending}
+              disabled={pending || zendnotaBezig}
               className="px-4 py-2 rounded-lg bg-[#1FAE7A] text-white text-sm font-semibold disabled:opacity-50"
             >
               {pending ? "Bezig\u2026" : "Bevestigen"}

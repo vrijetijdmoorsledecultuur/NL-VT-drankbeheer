@@ -1,44 +1,99 @@
 "use client";
 
-import { useTransition } from "react";
-import { Check, ReceiptText } from "lucide-react";
-import type { Building, Factuur, FactuurRegel, Product } from "@/lib/types";
-import { approveFactuur, markFactuurRecreatex } from "@/app/(app)/controle/actions";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { FileText, ChevronDown, ChevronUp, Download } from "lucide-react";
+import type { Building, Product, Factuur, FactuurRegel } from "@/lib/types";
+import { goedkeurFactuur } from "@/app/(app)/verwerking/actions";
+import { genereerFactuurPdf } from "@/lib/genereerFactuurPdf";
 import { formatDate } from "@/lib/format";
 
-export default function FacturenGoedkeuring({ facturen, factuurRegels, buildings, products }: { facturen: Factuur[]; factuurRegels: FactuurRegel[]; buildings: Building[]; products: Product[] }) {
+export default function FacturenGoedkeuring({
+  facturen,
+  factuurRegels,
+  buildings,
+  products,
+}: {
+  facturen: Factuur[];
+  factuurRegels: FactuurRegel[];
+  buildings: Building[];
+  products: Product[];
+}) {
+  const router = useRouter();
+  const [openId, setOpenId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const open = facturen.filter((factuur) => factuur.status !== "goedgekeurd" || !factuur.recreatex_verwerkt);
-  if (open.length === 0) return null;
+
+  const openFacturen = facturen.filter((f) => f.status === "open");
+  if (openFacturen.length === 0) return null;
+
+  function goedkeuren(f: Factuur) {
+    startTransition(async () => {
+      await goedkeurFactuur(f.id);
+      const gebouwNaam = buildings.find((b) => b.id === f.building_id)?.name || "?";
+      const regels = factuurRegels.filter((r) => r.factuur_id === f.id);
+      genereerFactuurPdf({ ...f, status: "goedgekeurd", goedgekeurd_door: null }, regels, products, gebouwNaam);
+      router.refresh();
+      setOpenId(null);
+    });
+  }
 
   return (
-    <section className="bg-white rounded-2xl border border-[#ECECF3] overflow-hidden mb-6">
-      <div className="px-5 py-4 flex items-center gap-3 border-b border-[#ECECF3]">
-        <div className="w-9 h-9 rounded-lg bg-[#E7F0FD] text-[#2F6FCB] flex items-center justify-center"><ReceiptText size={17} /></div>
-        <div><div className="font-bold text-[#171A2B]">Facturen ter goedkeuring</div><div className="text-xs text-[#8A8FA8]">Controleer en markeer daarna de verwerking in Recreatex.</div></div>
+    <div className="bg-white rounded-2xl border border-[#ECECF3] overflow-hidden mb-6">
+      <div className="px-5 pt-4 pb-3 flex items-center gap-2">
+        <div className="w-8 h-8 rounded-lg bg-[#FBEAF0] text-[#B4497F] flex items-center justify-center shrink-0">
+          <FileText size={15} />
+        </div>
+        <div>
+          <div className="font-bold text-[#171A2B]">Facturen & creditnota&apos;s ter goedkeuring</div>
+          <div className="text-xs text-[#8A8FA8]">Via Snelle Verwerking geregistreerd, wacht op goedkeuring.</div>
+        </div>
       </div>
       <div className="divide-y divide-[#ECECF3]">
-        {open.map((factuur) => {
-          const regels = factuurRegels.filter((regel) => regel.factuur_id === factuur.id);
+        {openFacturen.map((f) => {
+          const gebouw = buildings.find((b) => b.id === f.building_id);
+          const regels = factuurRegels.filter((r) => r.factuur_id === f.id);
+          const open = openId === f.id;
           return (
-            <article key={factuur.id} className="px-5 py-4 flex flex-col gap-3 lg:flex-row lg:items-center">
-              <div className="flex-1">
-                <div className="font-semibold text-[#171A2B]">{factuur.naam}</div>
-                <div className="text-xs text-[#8A8FA8]">{buildings.find((gebouw) => gebouw.id === factuur.building_id)?.name || "Onbekend gebouw"} · {formatDate(factuur.datum)} · {regels.length} regel(s)</div>
-                {regels.length > 0 && <div className="mt-2 text-xs text-[#5B5F82]">{regels.slice(0, 4).map((regel) => `${products.find((product) => product.id === regel.product_id)?.name || "Product"}: ${regel.aantal}`).join(" · ")}</div>}
-              </div>
-              <div className="text-lg font-bold text-[#171A2B]">€ {Number(factuur.bedrag || 0).toFixed(2).replace(".", ",")}</div>
-              <div className="flex gap-2">
-                {factuur.status !== "goedgekeurd" ? (
-                  <button disabled={pending} onClick={() => startTransition(() => approveFactuur(factuur.id))} className="px-3 py-2 rounded-lg bg-[#6D5AE6] text-white text-xs font-semibold flex items-center gap-1.5"><Check size={13} />Goedkeuren</button>
-                ) : !factuur.recreatex_verwerkt ? (
-                  <button disabled={pending} onClick={() => startTransition(() => markFactuurRecreatex(factuur.id))} className="px-3 py-2 rounded-lg border border-[#ECECF3] text-xs font-semibold text-[#171A2B]">Verwerkt in Recreatex</button>
-                ) : null}
-              </div>
-            </article>
+            <div key={f.id}>
+              <button onClick={() => setOpenId(open ? null : f.id)} className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-[#F7F7FB]">
+                <div>
+                  <div className="text-sm font-semibold text-[#171A2B]">
+                    {f.naam} &middot; {f.type === "creditnota" ? "\u2212" : ""}&euro;{f.bedrag.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-[#8A8FA8]">
+                    {gebouw?.name} &middot; {formatDate(f.datum)} &middot; {f.type === "factuur" ? "Factuur" : "Creditnota"}
+                  </div>
+                </div>
+                {open ? <ChevronUp size={15} className="text-[#8A8FA8]" /> : <ChevronDown size={15} className="text-[#8A8FA8]" />}
+              </button>
+              {open && (
+                <div className="px-5 pb-4 bg-[#F7F7FB]">
+                  <div className="divide-y divide-[#ECECF3] bg-white rounded-lg border border-[#ECECF3] mb-3">
+                    {regels.map((r) => {
+                      const product = products.find((p) => p.id === r.product_id);
+                      return (
+                        <div key={r.product_id} className="flex items-center justify-between px-3 py-2 text-sm">
+                          <span className="text-[#171A2B]">{product?.name || "?"}</span>
+                          <span className="text-[#5B5F82]">
+                            {r.aantal} &times; &euro;{r.prijs.toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => goedkeuren(f)}
+                    disabled={pending}
+                    className="w-full py-2.5 rounded-lg bg-[#6D5AE6] text-white text-sm font-semibold disabled:opacity-50"
+                  >
+                    Goedkeuren
+                  </button>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
-    </section>
+    </div>
   );
 }

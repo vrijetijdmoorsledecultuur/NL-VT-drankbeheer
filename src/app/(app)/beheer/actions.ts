@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Role } from "@/lib/types";
-import { normalizeEmail, normalizePhone, phoneLoginEmail, validLoginPin } from "@/lib/login";
 
 // Elke actie hier controleert eerst dat de ingelogde gebruiker systeembeheerder is,
 // vóór de service-role (admin) client gebruikt wordt. Zo blijft rolbeheer voorbehouden
@@ -18,68 +17,53 @@ async function assertSysteembeheerder() {
 
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
   if (profile?.role !== "systeembeheerder") throw new Error("Enkel de systeembeheerder mag dit doen.");
-  return user.id;
 }
 
-export async function createManagedUser(formData: FormData) {
+// Een volledige, downloadbare kopie van alle operationele gegevens — een
+// tussentijdse veiligheidsnet naast Supabase's eigen automatische back-ups
+// (zie Instellingen bij Supabase zelf voor die continue laag). Bevat bewust
+// geen pincode-hashes.
+export async function exporteerVolledigeBackup() {
   await assertSysteembeheerder();
+  const supabase = createAdminClient();
 
-  const fullName = String(formData.get("full_name") || "").trim();
-  const email = normalizeEmail(String(formData.get("email") || ""));
-  const phone = normalizePhone(String(formData.get("phone") || ""));
-  const pin = String(formData.get("pin") || "");
-  const role = String(formData.get("role") || "administratie") as Role;
-  const buildingIds = formData.getAll("building_ids").map(String);
+  const tabellen = [
+    "buildings",
+    "products",
+    "product_buildings",
+    "contacts",
+    "reservations",
+    "reservation_product_tellingen",
+    "reservation_boetes",
+    "reservation_extra_producten",
+    "leveringen",
+    "eigen_verbruik",
+    "voorraadverplaatsingen",
+    "telplekken",
+    "telplek_producten",
+    "telplek_vaste_voorraad",
+    "leveranciers",
+    "bestellingen",
+    "bestelling_regels",
+    "facturen",
+    "factuur_regels",
+    "logboek",
+    "reservation_toegangscodes",
+  ] as const;
 
-  if (!fullName || (!email && !phone) || !validLoginPin(pin)) {
-    return { ok: false as const, error: "Vul een naam, minstens één geldig contactgegeven en een pincode van zes cijfers in." };
-  }
+  const resultaten = await Promise.all(tabellen.map((t) => supabase.from(t).select("*")));
 
-  const admin = createAdminClient();
-  const loginEmail = email || phoneLoginEmail(phone!);
-  const { data, error } = await admin.auth.admin.createUser({
-    email: loginEmail,
-    password: pin,
-    email_confirm: true,
-    user_metadata: { full_name: fullName, phone },
+  const { data: profielen } = await supabase.from("profiles").select("id, email, full_name, role");
+
+  const backup: Record<string, unknown> = {
+    gemaakt_op: new Date().toISOString(),
+    profielen: profielen || [],
+  };
+  tabellen.forEach((t, i) => {
+    backup[t] = resultaten[i].data || [];
   });
-  if (error || !data.user) {
-    return { ok: false as const, error: error?.message.includes("already") ? "Dit e-mailadres is al gekoppeld aan een account." : "Het account kon niet worden aangemaakt." };
-  }
 
-  const { error: profileError } = await admin
-    .from("profiles")
-    .update({ full_name: fullName, phone, role, active: true })
-    .eq("id", data.user.id);
-  if (profileError) {
-    await admin.auth.admin.deleteUser(data.user.id);
-    return { ok: false as const, error: "Dit gsm-nummer of e-mailadres is al gekoppeld aan een account." };
-  }
-
-  if (role === "gebouwbeheerder" && buildingIds.length > 0) {
-    await admin.from("profile_buildings").insert(buildingIds.map((building_id) => ({ profile_id: data.user.id, building_id })));
-  }
-
-  revalidatePath("/beheer");
-  return { ok: true as const };
-}
-
-export async function setProfileActive(profileId: string, active: boolean) {
-  const currentUserId = await assertSysteembeheerder();
-  if (profileId === currentUserId) return { ok: false as const, error: "Je kunt je eigen beheeraccount niet deactiveren." };
-  const admin = createAdminClient();
-  await admin.from("profiles").update({ active }).eq("id", profileId);
-  revalidatePath("/beheer");
-  return { ok: true as const };
-}
-
-export async function resetLoginPin(profileId: string, pin: string) {
-  await assertSysteembeheerder();
-  if (!validLoginPin(pin)) return { ok: false as const, error: "De pincode moet uit zes cijfers bestaan." };
-  const admin = createAdminClient();
-  const { error } = await admin.auth.admin.updateUserById(profileId, { password: pin });
-  if (error) return { ok: false as const, error: "De pincode kon niet worden gewijzigd." };
-  return { ok: true as const };
+  return backup;
 }
 
 export async function inviteUser(formData: FormData) {
@@ -165,6 +149,44 @@ export async function updateRole(profileId: string, role: Role) {
   await admin.from("profiles").update({ role }).eq("id", profileId);
 
   revalidatePath("/beheer");
+}
+
+export async function updateProfileGegevens(profileId: string, fields: { fullName?: string; email?: string }) {
+  await assertSysteembeheerder();
+
+  const admin = createAdminClient();
+
+  if (fields.fullName !== undefined) {
+    await admin.from("profiles").update({ full_name: fields.fullName.trim() || null }).eq("id", profileId);
+  }
+
+  if (fields.email !== undefined && fields.email.trim()) {
+    const nieuweEmail = fields.email.trim();
+    const { error } = await admin.auth.admin.updateUserById(profileId, { email: nieuweEmail });
+    if (error) return { ok: false as const, error: error.message };
+    await admin.from("profiles").update({ email: nieuweEmail }).eq("id", profileId);
+  }
+
+  revalidatePath("/beheer");
+  return { ok: true as const };
+}
+
+export async function deleteProfile(profileId: string) {
+  await assertSysteembeheerder();
+
+  const admin = createAdminClient();
+  const { data: profile } = await admin.from("profiles").select("email, full_name").eq("id", profileId).single();
+  const { error } = await admin.auth.admin.deleteUser(profileId);
+  if (error) return { ok: false as const, error: error.message };
+
+  if (profile) {
+    const supabase = await createClient();
+    const { logboekRegel } = await import("@/lib/logboek");
+    await logboekRegel(supabase, "gebruiker_verwijderd", `Gebruiker verwijderd: ${profile.full_name || profile.email}`);
+  }
+
+  revalidatePath("/beheer");
+  return { ok: true as const };
 }
 
 export async function setGebouwbeheerderBuildings(profileId: string, buildingIds: string[]) {

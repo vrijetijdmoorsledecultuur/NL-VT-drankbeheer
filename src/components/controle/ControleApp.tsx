@@ -39,6 +39,7 @@ export default function ControleApp({
   telplekken,
   toegangscodes,
   canEdit,
+  initialReservationId,
   heeftPincode,
 }: {
   buildings: Building[];
@@ -60,11 +61,14 @@ export default function ControleApp({
   telplekken: Telplek[];
   toegangscodes: ReservationToegangscode[];
   canEdit: boolean;
+  initialReservationId?: string;
   heeftPincode: boolean;
 }) {
   const router = useRouter();
   const [openBuildingId, setOpenBuildingId] = useState<string | null>(null);
-  const [openReservationId, setOpenReservationId] = useState<string | null>(null);
+  const [openReservationId, setOpenReservationId] = useState<string | null>(
+    initialReservationId ? reservations.find((r) => r.id === initialReservationId)?.id || null : null
+  );
 
   const perBuilding = useMemo(
     () =>
@@ -107,6 +111,8 @@ export default function ControleApp({
         leveringen={leveringen}
         eigenVerbruik={eigenVerbruik}
         boeteProductIds={boetes.filter((b) => b.reservation_id === res.id).map((b) => b.product_id)}
+        boetes={boetes.filter((b) => b.reservation_id === res.id)}
+        prijzen={prijzen}
         extraProductIds={extraProducten.filter((e) => e.reservation_id === res.id).map((e) => e.product_id)}
         toegangscodes={toegangscodes.filter((t) => t.reservation_id === res.id)}
         huurderNaam={displayHuurder(res, contacts)}
@@ -156,7 +162,7 @@ export default function ControleApp({
   return (
     <div>
       <div className="flex items-start justify-between mb-1">
-        <h1 className="text-2xl font-bold text-[#171A2B]">Waar is controle nodig?</h1>
+        <h1 className="text-2xl font-bold text-[#171A2B]">Inkomende tellingen</h1>
         <div className="text-right">
           <div className="text-3xl font-bold text-[#171A2B]">{totaalTeControleren}</div>
           <div className="text-xs text-[#8A8FA8]">dranktellingen te controleren</div>

@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, HelpCircle, ShoppingCart } from "lucide-react";
-import type { Building, Product, Reservation, Telling, VerbruikRegel, Voorraadverplaatsing } from "@/lib/types";
+import type { Building, Product, Reservation, Telling, VerbruikRegel, Voorraadverplaatsing, VoorraadControletelling } from "@/lib/types";
 import { computeVoorraad } from "@/lib/verbruik";
 import { formatDate } from "@/lib/format";
 import { setVoorraadDrempel, createBestelling } from "@/app/(app)/bestellingen/actions";
@@ -25,6 +25,7 @@ export default function VoorraadView({
   leveringen,
   eigenVerbruik,
   verplaatsingen,
+  controletellingen,
   canEdit,
   defaultNaam,
 }: {
@@ -36,6 +37,7 @@ export default function VoorraadView({
   leveringen: VerbruikRegel[];
   eigenVerbruik: VerbruikRegel[];
   verplaatsingen: Voorraadverplaatsing[];
+  controletellingen: VoorraadControletelling[];
   canEdit: boolean;
   defaultNaam: string;
 }) {
@@ -60,9 +62,9 @@ export default function VoorraadView({
   const voorraad = useMemo(
     () =>
       buildingId
-        ? computeVoorraad(buildingId, gebouwProducten, reservations, tellingen, leveringen, eigenVerbruik, verplaatsingen)
+        ? computeVoorraad(buildingId, gebouwProducten, reservations, tellingen, leveringen, eigenVerbruik, verplaatsingen, controletellingen)
         : {},
-    [buildingId, gebouwProducten, reservations, tellingen, leveringen, eigenVerbruik, verplaatsingen]
+    [buildingId, gebouwProducten, reservations, tellingen, leveringen, eigenVerbruik, verplaatsingen, controletellingen]
   );
 
   const onbekendCount = gebouwProducten.filter((p) => voorraad[p.id]?.stuks == null).length;

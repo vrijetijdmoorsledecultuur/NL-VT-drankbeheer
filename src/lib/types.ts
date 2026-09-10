@@ -3,10 +3,8 @@ export type Role = "systeembeheerder" | "afdelingshoofd" | "gebouwbeheerder" | "
 export type Profile = {
   id: string;
   email: string;
-  phone?: string | null;
   full_name: string | null;
   role: Role;
-  active?: boolean;
   pincode_hash?: string | null;
 };
 
@@ -15,6 +13,12 @@ export type Telling = {
   product_id: string;
   vooraf: number | null;
   nadien: number | null;
+  vooraf_frigo: number | null;
+  vooraf_bakken: number | null;
+  vooraf_los: number | null;
+  nadien_frigo: number | null;
+  nadien_bakken: number | null;
+  nadien_los: number | null;
 };
 
 export type VerbruikRegel = {
@@ -25,12 +29,13 @@ export type VerbruikRegel = {
   product_id: string;
   aantal: number;
   wie: string | null;
+  bewijs_url?: string | null;
 };
 
 export type ReservationBoete = {
   reservation_id: string;
   product_id: string;
-  bewijs_url?: string | null;
+  bewijs_url: string | null;
 };
 
 export type Contact = {
@@ -58,10 +63,10 @@ export type Reservation = {
   activiteit_eind: string | null;
   toegang_eind: string | null;
   status: "wacht" | "gecontroleerd";
+  recreatex_verwerkt: boolean;
+  recreatex_verwerkt_door: string | null;
+  recreatex_verwerkt_op: string | null;
   bron: "pdf" | "manueel";
-  recreatex_verwerkt?: boolean;
-  recreatex_verwerkt_door?: string | null;
-  recreatex_verwerkt_op?: string | null;
 };
 
 export type PendingRole = {
@@ -88,6 +93,23 @@ export type RuweTelling = {
   afwijking_bevestigd: boolean;
   telplek_id: string | null;
   vaste_voorraad_bevestigd: boolean;
+  created_at: string;
+};
+
+export type VoorraadControletelling = {
+  id: string;
+  building_id: string;
+  product_id: string;
+  aantal: number;
+  datum: string;
+  created_at: string;
+};
+
+export type ProductPrijs = {
+  id: string;
+  product_id: string;
+  prijs: number;
+  geldig_vanaf: string;
   created_at: string;
 };
 
@@ -147,6 +169,40 @@ export type Bestelling = {
   verstuurd_op: string | null;
 };
 
+export type LogboekRegel = {
+  id: string;
+  created_at: string;
+  gebruiker_naam: string | null;
+  actie: string;
+  omschrijving: string;
+  building_id: string | null;
+  reservation_id: string | null;
+};
+
+export type Factuur = {
+  id: string;
+  building_id: string;
+  naam: string;
+  type: "factuur" | "creditnota";
+  datum: string;
+  bedrag: number;
+  wie: string | null;
+  created_at: string;
+  status: "open" | "goedgekeurd";
+  goedgekeurd_door: string | null;
+  goedgekeurd_op: string | null;
+  recreatex_verwerkt: boolean;
+  recreatex_verwerkt_door: string | null;
+  recreatex_verwerkt_op: string | null;
+};
+
+export type FactuurRegel = {
+  factuur_id: string;
+  product_id: string;
+  aantal: number;
+  prijs: number;
+};
+
 export type BestellingRegel = {
   bestelling_id: string;
   product_id: string;
@@ -170,38 +226,6 @@ export type RuweTellingRegel = {
   ruwe_telling_id: string;
   product_id: string;
   aantal: number;
-};
-
-export type ProductPrijs = {
-  id: string;
-  product_id: string;
-  prijs: number;
-  geldig_vanaf: string;
-  created_at: string;
-};
-
-export type Factuur = {
-  id: string;
-  building_id: string;
-  naam: string;
-  type: string;
-  datum: string;
-  bedrag: number;
-  wie: string | null;
-  created_at: string;
-  status: string;
-  goedgekeurd_door: string | null;
-  goedgekeurd_op: string | null;
-  recreatex_verwerkt: boolean;
-  recreatex_verwerkt_door: string | null;
-  recreatex_verwerkt_op: string | null;
-};
-
-export type FactuurRegel = {
-  factuur_id: string;
-  product_id: string;
-  aantal: number;
-  prijs: number;
 };
 
 export type Afrekenmodus = "standaard" | "toeslag";

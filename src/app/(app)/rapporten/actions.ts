@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import type { Building, Reservation, Product, Telling, VerbruikRegel } from "@/lib/types";
+import type { Building, Reservation, Product, Telling, VerbruikRegel, ProductPrijs } from "@/lib/types";
 import { computeVerbruik, computeTotaal } from "@/lib/verbruik";
 
 export type VerbruikRapportRegel = {
@@ -40,7 +40,7 @@ export async function genereerVerbruikRapport(
 
   if (!reservations || reservations.length === 0) return [];
 
-  const [{ data: buildings }, { data: products }, { data: tellingen }, { data: leveringen }, { data: eigenVerbruik }, { data: boetes }] =
+  const [{ data: buildings }, { data: products }, { data: tellingen }, { data: leveringen }, { data: eigenVerbruik }, { data: boetes }, { data: prijzen }] =
     await Promise.all([
       supabase.from("buildings").select("id, name, actief"),
       supabase.from("products").select("id, name, prijs, categorie, verpakking, actief, afrekenmodus"),
@@ -48,6 +48,7 @@ export async function genereerVerbruikRapport(
       supabase.from("leveringen").select("id, reservation_id, building_id, datum, product_id, aantal, wie"),
       supabase.from("eigen_verbruik").select("id, reservation_id, building_id, datum, product_id, aantal, wie"),
       supabase.from("reservation_boetes").select("reservation_id, product_id"),
+      supabase.from("product_prijzen").select("id, product_id, prijs, geldig_vanaf, created_at"),
     ]);
 
   const buildingList = (buildings as Building[]) || [];
@@ -57,13 +58,14 @@ export async function genereerVerbruikRapport(
   const leveringList = (leveringen as VerbruikRegel[]) || [];
   const eigenList = (eigenVerbruik as VerbruikRegel[]) || [];
   const boeteList = (boetes as { reservation_id: string; product_id: string }[]) || [];
+  const prijzenList = (prijzen as ProductPrijs[]) || [];
 
   const rows: VerbruikRapportRegel[] = [];
   for (const r of reservationList) {
     const gebouwNaam = buildingList.find((b) => b.id === r.building_id)?.name || "?";
     const { perProduct } = computeVerbruik(r, reservationList, tellingList, leveringList, eigenList, productList);
     const boeteProductIds = boeteList.filter((b) => b.reservation_id === r.id).map((b) => b.product_id);
-    const { drankTotaal, boetesTotaal, totaal } = computeTotaal(perProduct, productList, boeteProductIds);
+    const { drankTotaal, boetesTotaal, totaal } = computeTotaal(perProduct, productList, boeteProductIds, r.begin_datum, prijzenList);
 
     rows.push({
       datum: r.begin_datum,
@@ -77,6 +79,46 @@ export async function genereerVerbruikRapport(
   }
 
   return rows.sort((a, b) => a.datum.localeCompare(b.datum));
+}
+
+export type FactuurRapportRegel = {
+  datum: string;
+  gebouw: string;
+  naam: string;
+  type: "Factuur" | "Creditnota";
+  bedrag: number;
+  wie: string;
+};
+
+export async function genereerFacturenRapport(
+  buildingId: string,
+  vanDatum: string,
+  totDatum: string
+): Promise<FactuurRapportRegel[]> {
+  const supabase = await createClient();
+
+  let query = supabase
+    .from("facturen")
+    .select("building_id, naam, type, datum, bedrag, wie")
+    .gte("datum", vanDatum)
+    .lte("datum", totDatum);
+  if (buildingId !== "alle") query = query.eq("building_id", buildingId);
+  const { data: facturen } = await query;
+
+  const { data: buildings } = await supabase.from("buildings").select("id, name");
+  const buildingList = (buildings as Building[]) || [];
+  const gebouwNaam = (id: string) => buildingList.find((b) => b.id === id)?.name || "?";
+
+  return ((facturen as { building_id: string; naam: string; type: "factuur" | "creditnota"; datum: string; bedrag: number; wie: string | null }[]) || [])
+    .map((f) => ({
+      datum: f.datum,
+      gebouw: gebouwNaam(f.building_id),
+      naam: f.naam,
+      type: f.type === "factuur" ? ("Factuur" as const) : ("Creditnota" as const),
+      bedrag: f.bedrag,
+      wie: f.wie || "",
+    }))
+    .sort((a, b) => a.datum.localeCompare(b.datum));
 }
 
 export async function genereerLedgerRapport(
