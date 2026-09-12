@@ -212,7 +212,6 @@ export default function TellerApp({
       <div className="text-[11px] font-semibold tracking-wide text-[#B9BEDA] uppercase">Tellingen</div>
       <div className="text-lg font-bold">
         {gebouw?.name || "Kies je gebouw"}
-        {telplek && <span className="text-[#B9BEDA] font-normal"> &middot; {telplek.naam}</span>}
       </div>
     </div>
   );
@@ -318,7 +317,7 @@ export default function TellerApp({
     return (
       <div className="min-h-screen bg-[#F7F7FB]">
         {header}
-        <div className="p-4 max-w-lg mx-auto space-y-2">
+        <div className="p-4 max-w-lg mx-auto">
           {gebouwen.length > 1 && (
             <button
               onClick={() => {
@@ -330,27 +329,16 @@ export default function TellerApp({
               <ChevronLeft size={14} /> Ander gebouw
             </button>
           )}
-          {loadingTelplekken && <div className="text-sm text-[#8A8FA8] text-center py-6">Laden&hellip;</div>}
+          {loadingTelplekken && (
+            <div className="bg-white rounded-2xl border border-[#ECECF3] p-6 text-sm text-[#8A8FA8] text-center">
+              Telformulier voorbereiden&hellip;
+            </div>
+          )}
           {!loadingTelplekken && telplekken.length === 0 && (
-            <div className="text-sm text-[#8A8FA8] text-center py-6">
+            <div className="bg-white rounded-2xl border border-[#ECECF3] p-6 text-sm text-[#8A8FA8] text-center">
               Voor dit gebouw zijn nog geen telplekken ingesteld.
             </div>
           )}
-          {telplekken.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => selectTelplek(t)}
-              className="w-full flex items-center justify-between bg-white rounded-2xl border border-[#ECECF3] px-5 py-4 text-left hover:border-[#D8D3F7]"
-            >
-              <div>
-                <span className="font-semibold text-[#171A2B]">{t.naam}</span>
-                {t.vereist_naam && (
-                  <div className="text-xs text-[#C9862A] mt-0.5">Tel bij voorkeur eerst {t.vereist_naam}</div>
-                )}
-              </div>
-              <ChevronRight size={16} className="text-[#C7CAE0]" />
-            </button>
-          ))}
         </div>
       </div>
     );
