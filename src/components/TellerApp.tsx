@@ -20,6 +20,7 @@ import {
 type Step = "moment" | "gebouw" | "telplek" | "vaste_voorraad" | "reservatie" | "tellen" | "klaar";
 type TelFase = "frigo" | "berging";
 type DetailTelling = { frigo: number; bakken: number; los: number };
+type BergingEenheid = "bakken" | "los";
 
 export default function TellerApp({
   token,
@@ -58,6 +59,7 @@ export default function TellerApp({
   const [showExtra, setShowExtra] = useState(false);
   const [amounts, setAmounts] = useState<Record<string, number>>({});
   const [detailTellingen, setDetailTellingen] = useState<Record<string, DetailTelling>>({});
+  const [actieveEenheden, setActieveEenheden] = useState<Record<string, BergingEenheid>>({});
   const [telFase, setTelFase] = useState<TelFase>("frigo");
   const [voorafReferentie, setVoorafReferentie] = useState<Record<string, number>>({});
   const [afwijkingBevestigd, setAfwijkingBevestigd] = useState(false);
@@ -87,6 +89,7 @@ export default function TellerApp({
     ]);
     setProducts(prods);
     setReservations(res);
+    setActieveEenheden({});
     setTelFase("frigo");
     setStep("reservatie");
   }
@@ -201,6 +204,7 @@ export default function TellerApp({
     setReservationId("");
     setAmounts({});
     setDetailTellingen({});
+    setActieveEenheden({});
     setTelFase("frigo");
     setVasteVoorraadKlopt(null);
     setShowExtra(false);
@@ -457,7 +461,7 @@ export default function TellerApp({
   return (
     <div className="min-h-screen bg-[#F7F7FB] pb-28">
       {header}
-      <div className="p-4 space-y-4 max-w-lg mx-auto">
+      <div className="p-4 space-y-4 max-w-6xl mx-auto">
         <button
           onClick={() => (telFase === "berging" ? setTelFase("frigo") : setStep("reservatie"))}
           className="text-sm text-[#6D5AE6] font-semibold flex items-center gap-1"
@@ -486,58 +490,109 @@ export default function TellerApp({
         )}
 
         {grouped.map(([categorie, items]) => (
-          <div key={categorie} className="bg-white rounded-2xl border border-[#ECECF3] overflow-hidden">
-            <div className="px-4 py-2.5 text-xs font-bold text-[#8A8FA8] uppercase tracking-wide bg-[#F7F7FB]">
+          <section key={categorie}>
+            <div className="px-1 mb-2 text-xs font-bold text-[#8A8FA8] uppercase tracking-wide">
               {categorie}
             </div>
-            <div className="divide-y divide-[#ECECF3]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {items.map((p) => {
                 const value = amounts[p.id] ?? 0;
                 const detail = detailTellingen[p.id] || { frigo: 0, bakken: 0, los: 0 };
                 const vooraf = voorafReferentie[p.id];
                 const hasConflict = type === "nadien" && vooraf !== undefined && value > vooraf;
+                const flesLabel = p.verpakking === 6 ? "flessen" : "flesjes";
+                const actiefVeld: keyof DetailTelling =
+                  telFase === "frigo"
+                    ? "frigo"
+                    : p.verpakking > 1
+                      ? actieveEenheden[p.id] || "bakken"
+                      : "los";
+                const actiefAantal = detail[actiefVeld];
+                const invoerLabel =
+                  telFase === "frigo"
+                    ? `Aantal ${flesLabel} in frigo`
+                    : actiefVeld === "bakken"
+                      ? "Aantal bakken"
+                      : `Aantal ${flesLabel}`;
+                const bergingTotaal = detail.bakken * Math.max(p.verpakking, 1) + detail.los;
                 return (
-                  <div key={p.id} className={`px-4 py-3 ${hasConflict ? "bg-[#FDECEC]" : ""}`}>
-                    <div className="text-sm font-medium text-[#171A2B] mb-2">{p.name}</div>
-                    <div className={`grid ${telFase === "frigo" || p.verpakking <= 1 ? "grid-cols-1" : "grid-cols-2"} gap-2`}>
-                      {(telFase === "frigo" ? (["frigo"] as const) : p.verpakking > 1 ? (["bakken", "los"] as const) : (["los"] as const)).map((veld) => {
-                        const aantal = detail[veld];
-                        const label = veld === "frigo" ? "Flesjes / flessen" : veld === "bakken" ? "Volle bakken" : "Losse flesjes";
-                        return (
-                          <div key={veld} className="rounded-xl bg-[#F7F7FB] border border-[#ECECF3] p-2">
-                            <div className="text-[10px] font-semibold text-[#8A8FA8] uppercase mb-1.5">
-                              {label}{veld === "bakken" && p.verpakking > 1 ? ` (×${p.verpakking})` : ""}
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <button
-                                type="button"
-                                aria-label={`${label} verminderen voor ${p.name}`}
-                                onClick={() => setDetailAantal(p, veld, aantal - 1)}
-                                className="w-8 h-8 rounded-lg bg-white border border-[#ECECF3] flex items-center justify-center text-[#6D5AE6]"
-                              >
-                                <Minus size={14} />
-                              </button>
-                              <input
-                                aria-label={`${label} voor ${p.name}`}
-                                type="number"
-                                min={0}
-                                inputMode="numeric"
-                                value={aantal}
-                                onChange={(e) => setDetailAantal(p, veld, Number(e.target.value))}
-                                className="w-16 text-center text-base font-bold border border-[#ECECF3] rounded-lg py-1.5"
-                              />
-                              <button
-                                type="button"
-                                aria-label={`${label} verhogen voor ${p.name}`}
-                                onClick={() => setDetailAantal(p, veld, aantal + 1)}
-                                className="w-8 h-8 rounded-lg bg-white border border-[#ECECF3] flex items-center justify-center text-[#6D5AE6]"
-                              >
-                                <Plus size={14} />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                  <div
+                    key={p.id}
+                    className={`rounded-2xl border p-4 ${hasConflict ? "bg-[#FDECEC] border-[#F6C6C0]" : "bg-white border-[#ECECF3]"}`}
+                  >
+                    <div className="min-h-10 text-sm font-semibold text-[#171A2B]">
+                      {p.name}
+                      {p.verpakking > 1 && (
+                        <span className="block mt-0.5 text-[11px] font-normal text-[#8A8FA8]">
+                          {p.verpakking} {flesLabel} per bak
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-3 text-[11px] font-semibold text-[#8A8FA8]">{invoerLabel}</div>
+                    <div className="grid grid-cols-[44px_minmax(0,1fr)_44px] gap-2 mt-1.5">
+                      <button
+                        type="button"
+                        aria-label={`${invoerLabel} verminderen voor ${p.name}`}
+                        onClick={() => setDetailAantal(p, actiefVeld, actiefAantal - 1)}
+                        className="h-11 rounded-xl bg-[#F7F7FB] border border-[#ECECF3] flex items-center justify-center text-[#6D5AE6]"
+                      >
+                        <Minus size={16} />
+                      </button>
+                      <input
+                        aria-label={`${invoerLabel} voor ${p.name}`}
+                        type="number"
+                        min={0}
+                        inputMode="numeric"
+                        value={actiefAantal}
+                        onChange={(e) => setDetailAantal(p, actiefVeld, Number(e.target.value))}
+                        className="min-w-0 h-11 text-center text-xl font-bold border border-[#D9DAE5] rounded-xl"
+                      />
+                      <button
+                        type="button"
+                        aria-label={`${invoerLabel} verhogen voor ${p.name}`}
+                        onClick={() => setDetailAantal(p, actiefVeld, actiefAantal + 1)}
+                        className="h-11 rounded-xl bg-[#F7F7FB] border border-[#ECECF3] flex items-center justify-center text-[#6D5AE6]"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+
+                    {telFase === "berging" && p.verpakking > 1 && (
+                      <div className="grid grid-cols-2 gap-1 mt-2 rounded-xl bg-[#F3F3F8] p-1">
+                        <button
+                          type="button"
+                          aria-pressed={(actieveEenheden[p.id] || "bakken") === "bakken"}
+                          onClick={() => setActieveEenheden((huidig) => ({ ...huidig, [p.id]: "bakken" }))}
+                          className={`min-h-10 rounded-lg text-xs font-semibold ${
+                            (actieveEenheden[p.id] || "bakken") === "bakken"
+                              ? "bg-[#6D5AE6] text-white"
+                              : "text-[#6B7086]"
+                          }`}
+                        >
+                          Bakken &middot; {detail.bakken}
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={actieveEenheden[p.id] === "los"}
+                          onClick={() => setActieveEenheden((huidig) => ({ ...huidig, [p.id]: "los" }))}
+                          className={`min-h-10 rounded-lg text-xs font-semibold ${
+                            actieveEenheden[p.id] === "los" ? "bg-[#6D5AE6] text-white" : "text-[#6B7086]"
+                          }`}
+                        >
+                          {p.verpakking === 6 ? "Flessen" : "Flesjes"} &middot; {detail.los}
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="mt-2 pt-2 border-t border-[#ECECF3] text-[11px] text-[#6B7086]">
+                      {telFase === "frigo" ? (
+                        <><strong className="text-[#5142BA]">{detail.frigo} {flesLabel}</strong> in frigo</>
+                      ) : p.verpakking > 1 ? (
+                        <>{detail.bakken} &times; {p.verpakking} + {detail.los} = <strong className="text-[#5142BA]">{bergingTotaal} {flesLabel}</strong></>
+                      ) : (
+                        <><strong className="text-[#5142BA]">{detail.los}</strong> stuks</>
+                      )}
                     </div>
                     {hasConflict && (
                       <div className="text-xs text-[#D6493C] mt-1.5 flex items-center gap-1">
@@ -548,7 +603,7 @@ export default function TellerApp({
                 );
               })}
             </div>
-          </div>
+          </section>
         ))}
 
         {extraProducten.length > 0 && !showExtra && (
@@ -580,7 +635,7 @@ export default function TellerApp({
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-[#ECECF3] p-4">
-        <div className="max-w-lg mx-auto">
+        <div className="max-w-6xl mx-auto">
           {error && <div className="text-sm text-[#D6493C] mb-2">{error}</div>}
           <button
             onClick={() => {
