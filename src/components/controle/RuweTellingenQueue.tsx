@@ -91,7 +91,18 @@ export default function RuweTellingenQueue({
 
     function goedkeuren() {
       startTransition(async () => {
-        const regels = regelProductIds.map((productId) => ({ productId, aantal: amounts[productId] ?? 0 }));
+        const regels = regelProductIds.map((productId) => {
+          const bron = ruweTellingRegels.find(
+            (regel) => regel.ruwe_telling_id === open!.id && regel.product_id === productId
+          );
+          return {
+            productId,
+            aantal: amounts[productId] ?? 0,
+            frigo: bron?.frigo ?? null,
+            bakken: bron?.bakken ?? null,
+            los: bron?.los ?? null,
+          };
+        });
         if (isControle) {
           await approveControletelling(open!.id, open!.building_id, regels);
         } else if (reservation) {
@@ -100,7 +111,19 @@ export default function RuweTellingenQueue({
         const gebouwNaam = buildings.find((b) => b.id === open!.building_id)?.name || "?";
         genereerTellingPdf(
           open!,
-          regelProductIds.map((productId) => ({ ruwe_telling_id: open!.id, product_id: productId, aantal: amounts[productId] ?? 0 })),
+          regelProductIds.map((productId) => {
+            const bron = ruweTellingRegels.find(
+              (regel) => regel.ruwe_telling_id === open!.id && regel.product_id === productId
+            );
+            return {
+              ruwe_telling_id: open!.id,
+              product_id: productId,
+              aantal: amounts[productId] ?? 0,
+              frigo: bron?.frigo ?? null,
+              bakken: bron?.bakken ?? null,
+              los: bron?.los ?? null,
+            };
+          }),
           products,
           gebouwNaam,
           reservation || null,
@@ -146,6 +169,9 @@ export default function RuweTellingenQueue({
           {regelProductIds.map((pid) => {
             const product = products.find((p) => p.id === pid);
             if (!product) return null;
+            const detail = ruweTellingRegels.find(
+              (regel) => regel.ruwe_telling_id === open.id && regel.product_id === pid
+            );
             const vooraf = open.type === "nadien" ? voorafFor(open.reservation_id, pid) : null;
             const conflict = vooraf !== null && (amounts[pid] ?? 0) > vooraf;
             return (
@@ -162,6 +188,11 @@ export default function RuweTellingenQueue({
                     }`}
                   />
                 </div>
+                {(detail?.frigo != null || detail?.bakken != null || detail?.los != null) && (
+                  <div className="text-[11px] text-[#8A8FA8] mt-1">
+                    Frigo: {detail?.frigo ?? 0} flesjes &middot; Berging: {detail?.bakken ?? 0} bakken + {detail?.los ?? 0} losse
+                  </div>
+                )}
                 {conflict && (
                   <div className="text-xs text-[#D6493C] mt-1 flex items-center gap-1">
                     <AlertTriangle size={11} /> Vooraf geteld: {vooraf}

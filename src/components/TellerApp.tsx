@@ -18,6 +18,8 @@ import {
 } from "@/app/tellen/[token]/actions";
 
 type Step = "moment" | "gebouw" | "telplek" | "vaste_voorraad" | "reservatie" | "tellen" | "klaar";
+type TelFase = "frigo" | "berging";
+type DetailTelling = { frigo: number; bakken: number; los: number };
 
 export default function TellerApp({
   token,
@@ -55,6 +57,8 @@ export default function TellerApp({
   const [products, setProducts] = useState<TellerProduct[]>([]);
   const [showExtra, setShowExtra] = useState(false);
   const [amounts, setAmounts] = useState<Record<string, number>>({});
+  const [detailTellingen, setDetailTellingen] = useState<Record<string, DetailTelling>>({});
+  const [telFase, setTelFase] = useState<TelFase>("frigo");
   const [voorafReferentie, setVoorafReferentie] = useState<Record<string, number>>({});
   const [afwijkingBevestigd, setAfwijkingBevestigd] = useState(false);
 
@@ -68,7 +72,8 @@ export default function TellerApp({
     getTelplekken(token, gebouw.id).then((list) => {
       setTelplekken(list);
       setLoadingTelplekken(false);
-      if (list.length === 1) selectTelplek(list[0]);
+      const frigo = list.find((item) => item.naam.toLowerCase().includes("frigo"));
+      if (frigo || list[0]) selectTelplek(frigo || list[0]);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gebouw]);
@@ -82,13 +87,8 @@ export default function TellerApp({
     ]);
     setProducts(prods);
     setReservations(res);
-    if (t.heeft_vaste_voorraad) {
-      const vv = await getVasteVoorraad(token, t.id);
-      setVasteVoorraad(vv);
-      setStep("vaste_voorraad");
-    } else {
-      setStep("reservatie");
-    }
+    setTelFase("frigo");
+    setStep("reservatie");
   }
 
   function bevestigVasteVoorraad(klopt: boolean) {
@@ -138,8 +138,25 @@ export default function TellerApp({
       .map((p) => ({ product: p, vooraf: voorafReferentie[p.id], nadien: amounts[p.id] ?? 0 }));
   }, [type, products, voorafReferentie, amounts]);
 
-  function setAmount(productId: string, val: number) {
-    setAmounts((a) => ({ ...a, [productId]: Math.max(0, val) }));
+  function setDetailAantal(product: TellerProduct, veld: keyof DetailTelling, raw: number) {
+    const waarde = Math.max(0, Number.isFinite(raw) ? Math.floor(raw) : 0);
+    setDetailTellingen((huidig) => {
+      const vorige = huidig[product.id] || { frigo: 0, bakken: 0, los: 0 };
+      let volgende = { ...vorige, [veld]: waarde };
+
+      // Losse flesjes boven de bakinhoud worden meteen genormaliseerd.
+      if (veld === "los" && product.verpakking > 1 && volgende.los >= product.verpakking) {
+        volgende = {
+          ...volgende,
+          bakken: volgende.bakken + Math.floor(volgende.los / product.verpakking),
+          los: volgende.los % product.verpakking,
+        };
+      }
+
+      const totaal = volgende.frigo + volgende.bakken * Math.max(product.verpakking, 1) + volgende.los;
+      setAmounts((aantallen) => ({ ...aantallen, [product.id]: totaal }));
+      return { ...huidig, [product.id]: volgende };
+    });
     setAfwijkingBevestigd(false);
   }
 
@@ -154,9 +171,11 @@ export default function TellerApp({
     }
     setError(null);
     setSubmitting(true);
-    const regels = Object.entries(amounts)
-      .filter(([, aantal]) => aantal > 0)
-      .map(([productId, aantal]) => ({ productId, aantal }));
+    // Ook nulwaarden worden bewaard: een lege frigo kan correct geteld zijn.
+    const regels = products.map((product) => {
+      const detail = detailTellingen[product.id] || { frigo: 0, bakken: 0, los: 0 };
+      return { productId: product.id, aantal: amounts[product.id] ?? 0, ...detail };
+    });
 
     const res = await submitTelling(token, {
       buildingId: gebouw!.id,
@@ -181,6 +200,8 @@ export default function TellerApp({
     setTelplek(null);
     setReservationId("");
     setAmounts({});
+    setDetailTellingen({});
+    setTelFase("frigo");
     setVasteVoorraadKlopt(null);
     setShowExtra(false);
     setError(null);
@@ -388,10 +409,10 @@ export default function TellerApp({
         {header}
         <div className="p-4 max-w-lg mx-auto">
           <button
-            onClick={() => setStep(telplek?.heeft_vaste_voorraad ? "vaste_voorraad" : "telplek")}
+            onClick={() => setStep("gebouw")}
             className="text-sm text-[#6D5AE6] font-semibold flex items-center gap-1 mb-4"
           >
-            <ChevronLeft size={14} /> Terug
+            <ChevronLeft size={14} /> Ander gebouw
           </button>
           <div className="bg-white rounded-2xl border border-[#ECECF3] p-4">
             <div className="text-xs font-semibold text-[#6D5AE6] uppercase tracking-wide mb-3">
@@ -450,11 +471,25 @@ export default function TellerApp({
       {header}
       <div className="p-4 space-y-4 max-w-lg mx-auto">
         <button
-          onClick={() => setStep("reservatie")}
+          onClick={() => (telFase === "berging" ? setTelFase("frigo") : setStep("reservatie"))}
           className="text-sm text-[#6D5AE6] font-semibold flex items-center gap-1"
         >
           <ChevronLeft size={14} /> Terug
         </button>
+
+        <div className="bg-[#12172B] text-white rounded-2xl px-4 py-4">
+          <div className="text-[11px] font-semibold tracking-wide text-[#B9BEDA] uppercase">
+            Stap {telFase === "frigo" ? "1 van 2" : "2 van 2"}
+          </div>
+          <div className="font-bold mt-0.5">
+            {telFase === "frigo" ? "In frigo — flesjes/flessen" : "In koelcel of drankberging"}
+          </div>
+          <p className="text-xs text-[#B9BEDA] mt-1">
+            {telFase === "frigo"
+              ? "Tel hier enkel de losse flesjes of flessen. Een echte nul mag je gewoon als 0 laten staan."
+              : "Vul per product de volle bakken en de resterende losse flesjes in."}
+          </p>
+        </div>
 
         {vasteVoorraadKlopt && (
           <div className="bg-[#E4F6EE] border border-[#BFE9D5] rounded-xl px-4 py-2.5 text-xs text-[#1B8E63]">
@@ -470,35 +505,51 @@ export default function TellerApp({
             <div className="divide-y divide-[#ECECF3]">
               {items.map((p) => {
                 const value = amounts[p.id] ?? 0;
+                const detail = detailTellingen[p.id] || { frigo: 0, bakken: 0, los: 0 };
                 const vooraf = voorafReferentie[p.id];
                 const hasConflict = type === "nadien" && vooraf !== undefined && value > vooraf;
                 return (
                   <div key={p.id} className={`px-4 py-3 ${hasConflict ? "bg-[#FDECEC]" : ""}`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-[#171A2B]">{p.name}</span>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => setAmount(p.id, value - 1)}
-                          className="w-8 h-8 rounded-lg border border-[#ECECF3] flex items-center justify-center text-[#6D5AE6]"
-                        >
-                          <Minus size={14} />
-                        </button>
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          value={value}
-                          onChange={(e) => setAmount(p.id, Number(e.target.value) || 0)}
-                          className={`w-12 text-center text-sm font-semibold border rounded-lg py-1.5 ${
-                            hasConflict ? "border-[#D6493C] text-[#D6493C]" : "border-[#ECECF3]"
-                          }`}
-                        />
-                        <button
-                          onClick={() => setAmount(p.id, value + 1)}
-                          className="w-8 h-8 rounded-lg border border-[#ECECF3] flex items-center justify-center text-[#6D5AE6]"
-                        >
-                          <Plus size={14} />
-                        </button>
-                      </div>
+                    <div className="text-sm font-medium text-[#171A2B] mb-2">{p.name}</div>
+                    <div className={`grid ${telFase === "frigo" || p.verpakking <= 1 ? "grid-cols-1" : "grid-cols-2"} gap-2`}>
+                      {(telFase === "frigo" ? (["frigo"] as const) : p.verpakking > 1 ? (["bakken", "los"] as const) : (["los"] as const)).map((veld) => {
+                        const aantal = detail[veld];
+                        const label = veld === "frigo" ? "Flesjes / flessen" : veld === "bakken" ? "Volle bakken" : "Losse flesjes";
+                        return (
+                          <div key={veld} className="rounded-xl bg-[#F7F7FB] border border-[#ECECF3] p-2">
+                            <div className="text-[10px] font-semibold text-[#8A8FA8] uppercase mb-1.5">
+                              {label}{veld === "bakken" && p.verpakking > 1 ? ` (×${p.verpakking})` : ""}
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                aria-label={`${label} verminderen voor ${p.name}`}
+                                onClick={() => setDetailAantal(p, veld, aantal - 1)}
+                                className="w-8 h-8 rounded-lg bg-white border border-[#ECECF3] flex items-center justify-center text-[#6D5AE6]"
+                              >
+                                <Minus size={14} />
+                              </button>
+                              <input
+                                aria-label={`${label} voor ${p.name}`}
+                                type="number"
+                                min={0}
+                                inputMode="numeric"
+                                value={aantal}
+                                onChange={(e) => setDetailAantal(p, veld, Number(e.target.value))}
+                                className="w-16 text-center text-base font-bold border border-[#ECECF3] rounded-lg py-1.5"
+                              />
+                              <button
+                                type="button"
+                                aria-label={`${label} verhogen voor ${p.name}`}
+                                onClick={() => setDetailAantal(p, veld, aantal + 1)}
+                                className="w-8 h-8 rounded-lg bg-white border border-[#ECECF3] flex items-center justify-center text-[#6D5AE6]"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                     {hasConflict && (
                       <div className="text-xs text-[#D6493C] mt-1.5 flex items-center gap-1">
@@ -518,7 +569,7 @@ export default function TellerApp({
           </button>
         )}
 
-        {conflicts.length > 0 && (
+        {telFase === "berging" && conflicts.length > 0 && (
           <div className="bg-[#FDECEC] border border-[#F6C6C0] rounded-2xl p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-[#D6493C] mb-1">
               <AlertTriangle size={15} /> Dit kan niet kloppen
@@ -544,11 +595,22 @@ export default function TellerApp({
         <div className="max-w-lg mx-auto">
           {error && <div className="text-sm text-[#D6493C] mb-2">{error}</div>}
           <button
-            onClick={handleSubmit}
-            disabled={submitting || (conflicts.length > 0 && !afwijkingBevestigd)}
+            onClick={() => {
+              if (telFase === "frigo") {
+                setTelFase("berging");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              } else {
+                handleSubmit();
+              }
+            }}
+            disabled={submitting || (telFase === "berging" && conflicts.length > 0 && !afwijkingBevestigd)}
             className="w-full py-3 rounded-xl bg-[#6D5AE6] text-white font-semibold disabled:opacity-50"
           >
-            {submitting ? "Bezig met versturen\u2026" : "Telling versturen"}
+            {submitting
+              ? "Bezig met versturen\u2026"
+              : telFase === "frigo"
+                ? "Verder naar koelcel / drankberging"
+                : "Telling versturen"}
           </button>
         </div>
       </div>

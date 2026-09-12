@@ -226,6 +226,9 @@ export type RuweTellingRegel = {
   ruwe_telling_id: string;
   product_id: string;
   aantal: number;
+  frigo: number | null;
+  bakken: number | null;
+  los: number | null;
 };
 
 export type Afrekenmodus = "standaard" | "toeslag";

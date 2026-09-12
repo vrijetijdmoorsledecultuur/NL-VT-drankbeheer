@@ -10,7 +10,7 @@ export type TellerTelplek = {
   heeft_vaste_voorraad: boolean;
   vereist_naam: string | null;
 };
-export type TellerProduct = { id: string; name: string; categorie: string; standaard: boolean };
+export type TellerProduct = { id: string; name: string; categorie: string; standaard: boolean; verpakking: number };
 export type TellerVasteVoorraadRegel = { product_id: string; name: string; aantal: number };
 export type TellerReservation = {
   id: string;
@@ -73,7 +73,7 @@ export async function submitTelling(
     reservationId: string | null;
     type: "vooraf" | "nadien" | "controle";
     ingevoerdDoor: string;
-    regels: { productId: string; aantal: number }[];
+    regels: { productId: string; aantal: number; frigo: number; bakken: number; los: number }[];
     afwijkingBevestigd: boolean;
     vasteVoorraadBevestigd: boolean;
   }
@@ -87,7 +87,13 @@ export async function submitTelling(
     p_reservation_id: input.reservationId,
     p_type: input.type,
     p_ingevoerd_door: input.ingevoerdDoor,
-    p_regels: input.regels.map((r) => ({ product_id: r.productId, aantal: r.aantal })),
+    p_regels: input.regels.map((r) => ({
+      product_id: r.productId,
+      aantal: r.aantal,
+      frigo: r.frigo,
+      bakken: r.bakken,
+      los: r.los,
+    })),
     p_afwijking_bevestigd: input.afwijkingBevestigd,
     p_vaste_voorraad_bevestigd: input.vasteVoorraadBevestigd,
   });

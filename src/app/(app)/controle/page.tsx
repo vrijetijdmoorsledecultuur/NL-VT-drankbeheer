@@ -74,7 +74,7 @@ export default async function ControlePage({ searchParams }: { searchParams: Pro
       .eq("status", "verwerkt")
       .order("created_at", { ascending: false })
       .limit(20),
-    supabase.from("ruwe_telling_regels").select("ruwe_telling_id, product_id, aantal"),
+    supabase.from("ruwe_telling_regels").select("ruwe_telling_id, product_id, aantal, frigo, bakken, los"),
     supabase.from("telplekken").select("id, building_id, naam, volgorde, vereist_telplek_id, heeft_vaste_voorraad, actief"),
     supabase
       .from("reservation_toegangscodes")

@@ -208,7 +208,7 @@ export async function approveRuweTelling(
   ruweTellingId: string,
   reservationId: string,
   type: "vooraf" | "nadien",
-  regels: { productId: string; aantal: number }[]
+  regels: { productId: string; aantal: number; frigo?: number | null; bakken?: number | null; los?: number | null }[]
 ) {
   const supabase = await createClient();
 
@@ -216,7 +216,14 @@ export async function approveRuweTelling(
     await supabase
       .from("reservation_product_tellingen")
       .upsert(
-        { reservation_id: reservationId, product_id: regel.productId, [type]: regel.aantal },
+        {
+          reservation_id: reservationId,
+          product_id: regel.productId,
+          [type]: regel.aantal,
+          [`${type}_frigo`]: regel.frigo ?? null,
+          [`${type}_bakken`]: regel.bakken ?? null,
+          [`${type}_los`]: regel.los ?? null,
+        },
         { onConflict: "reservation_id,product_id" }
       );
   }
@@ -237,14 +244,22 @@ export async function approveRuweTelling(
 export async function approveControletelling(
   ruweTellingId: string,
   buildingId: string,
-  regels: { productId: string; aantal: number }[]
+  regels: { productId: string; aantal: number; frigo?: number | null; bakken?: number | null; los?: number | null }[]
 ) {
   const supabase = await createClient();
   const datum = new Date().toISOString().slice(0, 10);
 
   if (regels.length > 0) {
     await supabase.from("voorraad_controletellingen").insert(
-      regels.map((r) => ({ building_id: buildingId, product_id: r.productId, aantal: r.aantal, datum }))
+      regels.map((r) => ({
+        building_id: buildingId,
+        product_id: r.productId,
+        aantal: r.aantal,
+        frigo: r.frigo ?? null,
+        bakken: r.bakken ?? null,
+        los: r.los ?? null,
+        datum,
+      }))
     );
   }
 
